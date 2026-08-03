@@ -1,0 +1,6 @@
+{
+  "appId": "com.example.cheerpose",
+  "appName": "CheerPose",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

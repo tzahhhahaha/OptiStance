@@ -2,7 +2,7 @@ import { Menu, Settings, Info, HelpCircle, LogOut, X, Home, Lock, Shield } from 
 import { useState } from 'react';
 import type { UserRole } from '../../services/api';
 
-interface HamburgerMenuProps {
+export interface HamburgerMenuProps {
   onNavigate: (page: string) => void;
   userName?: string;
   userRole?: UserRole | null;
@@ -15,9 +15,8 @@ export function HamburgerMenu({ onNavigate, userName = 'Juan Dela Cruz', userRol
 
   const menuItems = isAdmin
     ? [
-        { id: 'admin/users', icon: Home, label: 'Manage Users', description: 'Manage athletes and settings', color: 'purple' },
-        { id: 'admin/thresholds', icon: Settings, label: 'Pose Thresholds', description: 'Edit MediaPipe thresholds', color: 'purple' },
-        { id: 'home', icon: Home, label: 'Return to App', description: 'Switch to main app view', color: 'blue' },
+        { id: 'admin', icon: Shield, label: 'Admin Console', description: 'Access immersive admin dashboard', color: 'purple' },
+        { id: 'library', icon: Home, label: 'Return to App', description: 'Switch to main app view', color: 'blue' },
         { id: 'logout', icon: LogOut, label: 'Logout', description: 'Sign out of admin console', color: 'red' },
       ]
     : [

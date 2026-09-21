@@ -1,6 +1,6 @@
 // Database types for Supabase integration
 
-export type UserRole = 'athlete' | 'coach' | 'admin';
+export type UserRole = 'athlete' | 'admin';
 
 export interface User {
   id: string;

@@ -65,6 +65,7 @@ export interface AppSettings {
 }
 
 export interface UserProfile {
+  id?: string;
   name: string;
   email: string;
   role: string;
@@ -73,4 +74,5 @@ export interface UserProfile {
   totalSessions: number;
   totalPracticeMinutes: number;
   masteredCount: number;
+  isGuest?: boolean;
 }

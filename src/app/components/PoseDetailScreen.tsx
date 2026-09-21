@@ -19,7 +19,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
   return (
     <div className="min-h-screen bg-[#050507] text-[#E0E0E6] pb-36 font-sans">
       {/* Top App Bar - Immersive UI */}
-      <header className="sticky top-0 w-full z-40 bg-[#050507]/70 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-18 flex items-center justify-between">
+      <header className="sticky top-0 w-full z-40 bg-[#050507]/70 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-16 flex items-center justify-between">
         <button
           onClick={onBack}
           className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider hover:bg-white/10 active:scale-95 transition-all"

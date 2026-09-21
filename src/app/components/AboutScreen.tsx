@@ -153,7 +153,7 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
           </h2>
           <div className="flex flex-wrap justify-center gap-2.5">
             <span className="px-4 py-2 bg-white/5 border border-white/10 text-zinc-300 rounded-2xl text-xs font-semibold">
-              React 19
+              React 18
             </span>
             <span className="px-4 py-2 bg-white/5 border border-white/10 text-zinc-300 rounded-2xl text-xs font-semibold">
               MediaPipe ML

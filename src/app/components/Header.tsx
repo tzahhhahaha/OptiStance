@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   const athleteRole = user?.role || 'Cheer Athlete';
 
   return (
-    <header className="sticky top-0 w-full z-40 bg-[#050507]/70 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-18 flex items-center justify-between transition-all">
+    <header className="sticky top-0 w-full z-40 bg-[#050507]/70 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-16 flex items-center justify-between transition-all">
       <div className="flex items-center gap-3.5">
         <button
           onClick={handleMenuClick}

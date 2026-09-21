@@ -4,21 +4,26 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev:android": "vite build && npx cap sync && npx cap open android",
+    "dev:ios": "vite build && npx cap sync && npx cap open ios",
     "build": "vite build",
-    "build:web": "vite build",
-    "build:mobile": "vite build && npx cap sync",
+    "build:android": "vite build && npx cap sync && npx cap open android",
+    "build:ios": "vite build && npx cap sync && npx cap open ios",
+    "sync": "npx cap sync",
     "lint": "eslint 'src/**/*.{ts,tsx,js,jsx}' --max-warnings=0 || true",
     "test": "vitest",
     "qa": "node scripts/qa/check.js",
-    "cap:add": "npx cap add",
+    "cap:add:android": "npx cap add android",
+    "cap:add:ios": "npx cap add ios",
     "cap:open:android": "npx cap open android",
     "cap:open:ios": "npx cap open ios",
     "ci": "npm ci && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.2",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/camera": "^8.2.4",
     "@capacitor/core": "^8.3.3",
+    "@capacitor/ios": "^8.5.2",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@mediapipe/camera_utils": "^0.3.1675466862",
@@ -60,14 +65,17 @@
     "cmdk": "1.1.1",
     "date-fns": "3.6.0",
     "embla-carousel-react": "8.6.0",
-    "firebase": "^9.22.0",
+    "git": "^0.1.5",
     "input-otp": "1.4.2",
     "lucide-react": "0.487.0",
     "motion": "12.23.24",
     "next-themes": "0.4.6",
+    "pg": "^8.23.0",
+    "react": "18.3.1",
     "react-day-picker": "8.10.1",
     "react-dnd": "16.0.1",
     "react-dnd-html5-backend": "16.0.1",
+    "react-dom": "18.3.1",
     "react-hook-form": "7.55.0",
     "react-popper": "2.3.0",
     "react-resizable-panels": "2.1.7",
@@ -81,6 +89,7 @@
     "vaul": "1.1.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@tailwindcss/vite": "4.1.12",
     "@testing-library/react": "14.0.0",
     "@typescript-eslint/eslint-plugin": "6.1.0",
@@ -92,17 +101,5 @@
     "tailwindcss": "4.1.12",
     "vite": "6.3.5",
     "vitest": "^4.1.6"
-  },
-  "peerDependencies": {
-    "react": "18.3.1",
-    "react-dom": "18.3.1"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
   }
 }

@@ -207,7 +207,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
 
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
-        <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-[#0f0f14] border border-white/10 rounded-3xl p-6 max-w-xs w-full shadow-2xl shadow-black/80 text-center animate-fade-in-up">
             <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto mb-4">
               <AlertTriangle className="w-6 h-6" />

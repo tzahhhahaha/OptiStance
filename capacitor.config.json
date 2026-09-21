@@ -1,6 +1,21 @@
 {
-  "appId": "com.example.cheerpose",
-  "appName": "CheerPose",
+  "appId": "com.optistance.cheerpose",
+  "appName": "OptiStance",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Camera": {
+      "permissions": ["camera", "photos"]
+    }
+  },
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "android": {
+    "minWebViewEngineVersion": 115,
+    "webViewDebuggingEnabled": false
+  }
 }

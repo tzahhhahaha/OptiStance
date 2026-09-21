@@ -79,7 +79,8 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
 
           <button
             onClick={() => setShowExportModal(true)}
-            className="px-5 py-3 rounded-2xl bg-white text-black text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 active:scale-95 transition-all self-start md:self-auto"
+            disabled={sessions.length === 0}
+            className="px-5 py-3 rounded-2xl bg-white text-black text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 active:scale-95 transition-all self-start md:self-auto disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
           >
             <Share2 className="w-4 h-4" />
             <span>Coach Export</span>
@@ -88,42 +89,45 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
       </div>
 
       {/* Metrics Row - Bento Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-        <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Logs</p>
-          <p className="text-2xl md:text-3xl font-black text-white font-mono my-1">{sessions.length}</p>
-          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-            Active Athlete
-          </span>
-        </div>
+      {sessions.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+          <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Logs</p>
+            <p className="text-2xl md:text-3xl font-black text-white font-mono my-1">{sessions.length}</p>
+            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+              Active Athlete
+            </span>
+          </div>
 
-        <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Avg Accuracy</p>
-          <p className="text-2xl md:text-3xl font-black text-indigo-400 font-mono my-1">{avgAccuracy}%</p>
-          <span className="text-[10px] text-indigo-300 font-bold bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">
-            ICU Calibrated
-          </span>
-        </div>
+          <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Avg Accuracy</p>
+            <p className="text-2xl md:text-3xl font-black text-indigo-400 font-mono my-1">{avgAccuracy}%</p>
+            <span className="text-[10px] text-indigo-300 font-bold bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">
+              ICU Calibrated
+            </span>
+          </div>
 
-        <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Practice Time</p>
-          <p className="text-2xl md:text-3xl font-black text-white font-mono my-1">{totalTimeMinutes}m</p>
-          <span className="text-[10px] text-zinc-400 font-bold bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
-            Mat Time
-          </span>
-        </div>
+          <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Practice Time</p>
+            <p className="text-2xl md:text-3xl font-black text-white font-mono my-1">{totalTimeMinutes}m</p>
+            <span className="text-[10px] text-zinc-400 font-bold bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
+              Mat Time
+            </span>
+          </div>
 
-        <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
-          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">ICU Grade</p>
-          <p className="text-2xl md:text-3xl font-black text-emerald-400 font-mono my-1">9.4 / 10</p>
-          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-            Level 4 Certified
-          </span>
+          <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
+            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">ICU Grade</p>
+            <p className="text-2xl md:text-3xl font-black text-emerald-400 font-mono my-1">9.4 / 10</p>
+            <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+              Level 4 Certified
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-6">
+      {sessions.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-6">
         <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] shrink-0">
           Filter:
         </span>
@@ -151,9 +155,27 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
           </button>
         ))}
       </div>
+      )}
 
       {/* Session Logs List */}
       <div className="space-y-4">
+        {filteredSessions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6">
+              <History className="w-8 h-8 text-indigo-400" />
+            </div>
+            <h3 className="text-lg md:text-xl font-black text-white mb-2">No Practice Sessions Yet</h3>
+            <p className="text-sm text-zinc-400 max-w-sm mb-6 leading-relaxed">
+              Start by practicing your first pose in the library to build your performance history and track your progress over time.
+            </p>
+            <button
+              onClick={() => onStartPracticeWithPoseId('')}
+              className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)]"
+            >
+              Start First Practice
+            </button>
+          </div>
+        ) : null}
         {filteredSessions.map((session) => {
           const isHigh = session.accuracyScore >= 90;
           return (

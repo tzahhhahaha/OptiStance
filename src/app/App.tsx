@@ -13,17 +13,18 @@ import { ProfileScreen } from './components/ProfileScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { DarkAdminPage } from './components/DarkAdminPage';
-import { INITIAL_POSES, INITIAL_SESSIONS } from './data/poses';
+import { INITIAL_POSES } from './data/poses';
 import { Pose, PracticeSession, AppSettings, UserProfile } from './types';
+import { queuePracticeSession, syncPendingSessions } from '../services/offlineSync';
 
 const DEFAULT_USER: UserProfile = {
-  name: 'System Manager',
-  email: 'admin@optistance.com',
-  role: 'SystemManager',
+  name: 'Guest Athlete',
+  email: 'guest@optistance.app',
+  role: 'Cheer Athlete',
   avatarUrl: '',
-  totalSessions: 24,
-  totalPracticeMinutes: 180,
-  masteredCount: 4
+  totalSessions: 0,
+  totalPracticeMinutes: 0,
+  masteredCount: 0
 };
 
 export default function App() {
@@ -42,10 +43,10 @@ export default function App() {
     if (savedUser) {
       try {
         const parsed = JSON.parse(savedUser);
-        // Force SystemManager role for demo/admin testing
-        parsed.role = 'SystemManager';
-        parsed.name = 'System Manager';
-        return parsed;
+        // Validate the stored user has a legitimate role
+        if (parsed && typeof parsed === 'object' && parsed.name && parsed.email) {
+          return parsed as UserProfile;
+        }
       } catch {
         // fallback
       }
@@ -55,7 +56,7 @@ export default function App() {
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     const savedAuth = localStorage.getItem('optistance_is_authenticated');
-    return savedAuth !== null ? savedAuth === 'true' : true;
+    return savedAuth !== null ? savedAuth === 'true' : false;
   });
 
   const [poses, setPoses] = useState<Pose[]>(() => {
@@ -79,7 +80,7 @@ export default function App() {
         // fallback
       }
     }
-    return INITIAL_SESSIONS;
+    return [];
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -101,6 +102,18 @@ export default function App() {
       cameraFacing: 'user'
     };
   });
+
+  useEffect(() => {
+    const sync = () => {
+      if (isAuthenticated && !user.isGuest) {
+        void syncPendingSessions();
+      }
+    };
+
+    sync();
+    window.addEventListener('online', sync);
+    return () => window.removeEventListener('online', sync);
+  }, [isAuthenticated, user.isGuest]);
 
   // Apply theme class to document body
   useEffect(() => {
@@ -138,6 +151,7 @@ export default function App() {
 
   // Handle Authentication flow
   const handleAuthSuccess = (authenticatedUser: UserProfile) => {
+    sessions.forEach((session) => queuePracticeSession(session, authenticatedUser.id));
     setUser(authenticatedUser);
     setIsAuthenticated(true);
     setCurrentTab('library');
@@ -146,13 +160,15 @@ export default function App() {
 
   const handleContinueAsGuest = () => {
     const guestUser: UserProfile = {
+      id: undefined,
       name: 'Guest Athlete',
       email: 'guest@optistance.app',
       role: 'Cheer Athlete',
       avatarUrl: '',
-      totalSessions: 12,
-      totalPracticeMinutes: 90,
-      masteredCount: 2
+      totalSessions: 0,
+      totalPracticeMinutes: 0,
+      masteredCount: 0,
+      isGuest: true
     };
     setUser(guestUser);
     setIsAuthenticated(true);
@@ -172,6 +188,21 @@ export default function App() {
   // Handle saving a practice session
   const handleSaveSession = (newSession: PracticeSession) => {
     setSessions((prev) => [newSession, ...prev]);
+    queuePracticeSession(newSession, user.isGuest ? undefined : user.id);
+    if (navigator.onLine && !user.isGuest) {
+      void syncPendingSessions();
+    }
+
+    // Update the athlete's total session count and practice minutes
+    setUser((prevUser) => ({
+      ...prevUser,
+      totalSessions: (prevUser.totalSessions || 0) + 1,
+      totalPracticeMinutes: (prevUser.totalPracticeMinutes || 0) + Math.round(newSession.durationSeconds / 60),
+      masteredCount: Math.max(
+        prevUser.masteredCount || 0,
+        poses.filter((p) => p.masteryPercentage >= 80 || p.id === newSession.poseId && newSession.accuracyScore >= 80).length
+      )
+    }));
 
     // Update the pose's mastery score
     setPoses((prevPoses) =>

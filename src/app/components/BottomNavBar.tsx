@@ -37,13 +37,13 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentTab, onSelect
           className="relative -top-5 group flex flex-col items-center focus:outline-none"
           aria-label="Start AI Scan"
         >
-          <div className="relative p-1">
-            {/* Glow ring */}
-            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500 blur-md opacity-70 group-hover:opacity-100 transition-opacity" />
-            <div className="relative w-15 h-15 rounded-full bg-gradient-to-tr from-indigo-600 via-purple-600 to-rose-500 text-white flex items-center justify-center shadow-[0_0_25px_rgba(99,102,241,0.6)] group-hover:scale-105 active:scale-95 transition-all duration-300 border-4 border-white">
-              <Camera className="w-6 h-6" strokeWidth={2.4} />
+            <div className="relative p-1">
+              {/* Glow ring */}
+              <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500 blur-md opacity-70 group-hover:opacity-100 transition-opacity" />
+              <div className="relative w-14 h-14 rounded-full bg-gradient-to-tr from-indigo-600 via-purple-600 to-rose-500 text-white flex items-center justify-center shadow-[0_0_25px_rgba(99,102,241,0.6)] group-hover:scale-105 active:scale-95 transition-all duration-300 border-4 border-white">
+                <Camera className="w-6 h-6" strokeWidth={2.4} />
+              </div>
             </div>
-          </div>
           <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-[0.2em] mt-0.5 group-hover:text-white transition-colors">
             AI Scan
           </span>

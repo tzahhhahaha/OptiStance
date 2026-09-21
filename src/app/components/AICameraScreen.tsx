@@ -24,6 +24,7 @@ import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 import { Pose, PracticeSession } from '../types';
 import { analyzePomMotion } from './poseLibrary';
 import { audioCoach } from '../utils/audio';
+import {Camera} from '@capacitor/camera'
 
 interface AICameraScreenProps {
   initialPose?: Pose | null;
@@ -268,20 +269,19 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
             }
           }
 
-          const leftShoulder = results.poseLandmarks[11];
-          const rightShoulder = results.poseLandmarks[12];
-          const leftHip = results.poseLandmarks[23];
-          const rightHip = results.poseLandmarks[24];
-          const avgVisibility = ((leftShoulder?.visibility ?? 0.5) + (rightShoulder?.visibility ?? 0.5) + (leftHip?.visibility ?? 0.5) + (rightHip?.visibility ?? 0.5)) / 4;
-          const liveConfidence = Math.max(0, Math.min(100, Math.round((avgVisibility + 0.4) * 100)));
+          const hasValidPose = poseAnalysis.pose && visibilityStatus.isStrong && poseAnalysis.confidence >= 0.45;
+          const poseMatchConfidence = Math.max(0, Math.min(100, Math.round(poseAnalysis.confidence * 100)));
 
-          const hasValidPose = poseAnalysis.pose && visibilityStatus.isStrong && poseAnalysis.confidence >= 0.78;
-          const shouldUseLiveAccuracy = hasValidPose || (targetPose && visibilityStatus.isEnough);
-
-          if (shouldUseLiveAccuracy) {
-            setAccuracy(liveConfidence);
+          if (targetPose) {
+            if (!visibilityStatus.isEnough) {
+              setAccuracy(0);
+            } else if (hasValidPose) {
+              setAccuracy(poseMatchConfidence);
+            } else {
+              setAccuracy(Math.max(0, Math.round(poseMatchConfidence * 0.4)));
+            }
           } else {
-            setAccuracy(0);
+            setAccuracy(hasValidPose ? poseMatchConfidence : 0);
           }
         }
       });
@@ -399,26 +399,30 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
   };
 
   const executeSnapshot = () => {
+    const poseToUse = currentPose ?? activeTargetPose ?? allPoses[0];
+    if (!poseToUse) return;
+
     setIsCapturing(true);
     audioCoach.playShutterSound();
 
     setTimeout(() => {
       setIsCapturing(false);
-      // Random variance based on current pose accuracy
-      const finalScore = Math.min(100, Math.max(70, accuracy + Math.floor(Math.random() * 7) - 2));
-      const icuGrade = finalScore >= 95 ? 9.8 : finalScore >= 85 ? 8.9 : 7.6;
+      // Use the REAL pose detection accuracy from the analysis, not a random value.
+      // If no pose is currently detected (accuracy=0), reflect that honestly in the score.
+      const finalScore = Math.max(0, Math.min(100, Math.round(accuracy)));
+      const icuGrade = finalScore >= 90 ? 9.8 : finalScore >= 80 ? 8.9 : finalScore >= 60 ? 6.5 : 4.2;
 
       const newSession: PracticeSession = {
         id: `sess-${Date.now()}`,
-        poseId: currentPose.id,
-        poseName: currentPose.name,
+        poseId: poseToUse.id,
+        poseName: poseToUse.name,
         timestamp: 'Just now',
         accuracyScore: finalScore,
         durationSeconds: 45,
         corrections: [
           finalScore >= 90
             ? 'Optimal kinematic form maintained'
-            : customCorrection,
+            : customCorrection || 'Maintain core engagement and locked joint alignment',
           'ICU Rulebook compliance verified'
         ],
         icuScore: icuGrade,
@@ -666,7 +670,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
         </div>
 
         {/* Bottom Shutter & Controls Bar */}
-        <div className="absolute bottom-0 left-0 right-0 z-30 pb-safe-area-bottom pt-4 px-6 bg-gradient-to-t from-[#050507] via-[#050507]/80 to-transparent flex items-center justify-between h-32">
+        <div className="absolute bottom-0 left-0 right-0 z-30 pb-[max(16px,env(safe-area-inset-bottom))] pt-4 px-6 bg-gradient-to-t from-[#050507] via-[#050507]/80 to-transparent flex items-center justify-between h-32">
           {/* Upload Button */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -717,7 +721,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base text-white tracking-tight">Kinematic Analysis</h3>
-                  <p className="text-xs text-zinc-400 mt-0.5">{currentPose.name} • ICU Standards Check</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{(currentPose ?? activeTargetPose ?? allPoses[0])?.name ?? 'Pose Analysis'} • ICU Standards Check</p>
                 </div>
               </div>
               <button
@@ -790,9 +794,9 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                 <p className="font-bold text-indigo-300 uppercase tracking-wider mb-1 text-[10px]">
                   AI Coach Insight:
                 </p>
-                <p className="text-zinc-300 leading-relaxed">
-                  {currentPose.sampleCorrectionMessage} Focus on core engagement during balance transitions.
-                </p>
+                  <p className="text-zinc-300 leading-relaxed">
+                    {(currentPose ?? activeTargetPose ?? allPoses[0])?.sampleCorrectionMessage ?? 'Maintain core engagement and follow the joint angle standards shown above.'} Focus on core engagement during balance transitions.
+                  </p>
               </div>
             </div>
 
@@ -812,6 +816,9 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
               <button
                 onClick={() => {
                   setSummaryModalOpen(false);
+                  if (lastCapturedSession) {
+                    onSaveSession(lastCapturedSession);
+                  }
                   audioCoach.speakCue('Session saved to training history', audioEnabled);
                   onClose();
                 }}

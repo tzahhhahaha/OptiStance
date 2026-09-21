@@ -12,6 +12,7 @@ import {
   X
 } from 'lucide-react';
 import { UserProfile } from '../types';
+import { supabaseLogin, supabaseSignUp } from '../../services/supabaseApi';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -24,6 +25,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -36,7 +38,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [signupPassword, setSignupPassword] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -49,21 +51,31 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
       return;
     }
 
-    // Authenticate and construct user
-    const loggedUser: UserProfile = {
-      name: loginEmail.split('@')[0].replace('.', ' ').replace(/^./, (str) => str.toUpperCase()) || 'Cheer Athlete',
-      email: loginEmail,
-      role: 'Cheer Athlete',
-      avatarUrl: '',
-      totalSessions: 24,
-      totalPracticeMinutes: 180,
-      masteredCount: 4
-    };
+    setIsSubmitting(true);
+    try {
+      const authenticatedUser = await supabaseLogin(loginEmail, loginPassword);
 
-    onAuthSuccess(loggedUser);
+      const loggedUser: UserProfile = {
+        id: authenticatedUser.id,
+        name: authenticatedUser.fullName,
+        email: authenticatedUser.email,
+        role: authenticatedUser.role === 'SystemManager' ? 'SystemManager' : 'Cheer Athlete',
+        avatarUrl: '',
+        totalSessions: 0,
+        totalPracticeMinutes: 0,
+        masteredCount: 0,
+        isGuest: false
+      };
+
+      onAuthSuccess(loggedUser);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid email or password.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSignupSubmit = (e: React.FormEvent) => {
+  const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -84,17 +96,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
       return;
     }
 
-    const newUser: UserProfile = {
-      name: signupName.trim(),
-      email: signupEmail.trim(),
-      role: 'Cheer Athlete',
-      avatarUrl: '',
-      totalSessions: 0,
-      totalPracticeMinutes: 0,
-      masteredCount: 0
-    };
+    setIsSubmitting(true);
+    try {
+      const newAccount = await supabaseSignUp(signupName.trim(), signupEmail.trim(), signupPassword);
 
-    onAuthSuccess(newUser);
+      const newUser: UserProfile = {
+        id: newAccount.id,
+        name: newAccount.fullName,
+        email: newAccount.email,
+        role: 'Cheer Athlete',
+        avatarUrl: '',
+        totalSessions: 0,
+        totalPracticeMinutes: 0,
+        masteredCount: 0,
+        isGuest: false
+      };
+
+      onAuthSuccess(newUser);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to create account.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -170,6 +193,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
                 : 'Unlock real-time AI skeleton tracking & posture scoring.'}
             </p>
           </div>
+
+          {/* Note: Demo credentials removed - users sign up with their own accounts */}
 
           {/* Error Message */}
           {error && (
@@ -248,10 +273,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
 
               <button
                 type="submit"
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2"
+                disabled={isSubmitting}
+                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <span>Launch Telemetry Hub</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>{isSubmitting ? 'Signing in...' : 'Launch Telemetry Hub'}</span>
+                {!isSubmitting && <ArrowRight className="w-4 h-4" />}
               </button>
             </form>
           ) : (
@@ -334,10 +360,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
 
               <button
                 type="submit"
-                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2"
+                disabled={isSubmitting}
+                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <span>Register Athlete Account</span>
-                <ArrowRight className="w-4 h-4" />
+                <span>{isSubmitting ? 'Creating account...' : 'Register Athlete Account'}</span>
+                {!isSubmitting && <ArrowRight className="w-4 h-4" />}
               </button>
             </form>
           )}

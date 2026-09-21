@@ -1,13 +1,14 @@
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pgvector";
+-- Note: pgvector extension removed - not available in this Supabase project
+-- and not required by the schema (no vector columns used)
 
 -- Users table (with role-based access)
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT DEFAULT 'athlete' CHECK (role IN ('athlete', 'coach', 'admin')),
+  role TEXT DEFAULT 'athlete' CHECK (role IN ('athlete', 'admin')),
   avatar_url TEXT,
   bio TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -146,6 +147,10 @@ ALTER TABLE media_uploads ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile" ON users
   FOR SELECT USING (auth.uid()::text = id::text);
 
+-- Users can view all user profiles (for leaderboards, coach views, etc.)
+CREATE POLICY "Users can view all user profiles" ON users
+  FOR SELECT TO authenticated USING (true);
+
 -- Admins can view all users
 CREATE POLICY "Admins can view all users" ON users
   FOR SELECT USING (
@@ -153,6 +158,78 @@ CREATE POLICY "Admins can view all users" ON users
       SELECT 1 FROM users WHERE id = auth.uid()::uuid AND role = 'admin'
     )
   );
+
+-- Stunts library visible to all authenticated users
+CREATE POLICY "Authenticated users can view stunts" ON stunts
+  FOR SELECT TO authenticated USING (true);
+
+-- Joint angle standards visible to all authenticated users
+CREATE POLICY "Authenticated users can view joint angle standards" ON joint_angle_standards
+  FOR SELECT TO authenticated USING (true);
+
+-- Athletes can view their own profile
+CREATE POLICY "Athletes can view own profile" ON athlete_profiles
+  FOR SELECT TO authenticated USING (user_id = auth.uid()::uuid);
+
+-- Admins can view all athlete profiles
+CREATE POLICY "Admins can view all athlete profiles" ON athlete_profiles
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM users WHERE id = auth.uid()::uuid AND role = 'admin'
+    )
+  );
+
+-- Session owners can view their joint corrections
+CREATE POLICY "Session owners can view joint corrections" ON joint_corrections
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM practice_sessions
+      WHERE practice_sessions.id = joint_corrections.session_id
+        AND practice_sessions.user_id = auth.uid()::uuid
+    )
+  );
+
+-- Admins can view all joint corrections
+CREATE POLICY "Admins can view all joint corrections" ON joint_corrections
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM users WHERE id = auth.uid()::uuid AND role = 'admin'
+    )
+  );
+
+-- Ticket owners can view replies
+CREATE POLICY "Ticket owners can view replies" ON ticket_replies
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM support_tickets
+      WHERE support_tickets.id = ticket_replies.ticket_id
+        AND support_tickets.user_id = auth.uid()::uuid
+    )
+  );
+
+-- Admins can view all ticket replies
+CREATE POLICY "Admins can view all ticket replies" ON ticket_replies
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM users WHERE id = auth.uid()::uuid AND role = 'admin'
+    )
+  );
+
+-- Users can view their own media
+CREATE POLICY "Users can view own media" ON media_uploads
+  FOR SELECT TO authenticated USING (user_id = auth.uid()::uuid);
+
+-- Admins can view all media
+CREATE POLICY "Admins can view all media" ON media_uploads
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM users WHERE id = auth.uid()::uuid AND role = 'admin'
+    )
+  );
+
+-- Analytics visible to all authenticated users
+CREATE POLICY "Authenticated users can view analytics" ON analytics_snapshots
+  FOR SELECT TO authenticated USING (true);
 
 -- Athletes can view their own sessions
 CREATE POLICY "Athletes view own sessions" ON practice_sessions

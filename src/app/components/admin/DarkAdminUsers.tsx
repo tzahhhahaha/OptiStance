@@ -1,25 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Edit, Trash2, Shield, Award, Clock, MoreVertical, CheckCircle, AlertCircle } from 'lucide-react';
+import { supabaseGetUsers, supabaseDeleteUser } from '../../../services/supabaseApi';
 
 interface Athlete {
   id: string;
   name: string;
   email: string;
-  role: 'athlete' | 'coach' | 'admin';
+  role: 'athlete' | 'admin';
   sessions: number;
   avgAccuracy: number;
   status: 'active' | 'inactive';
   joinDate: string;
 }
 
-const mockAthletes: Athlete[] = [
-  { id: '1', name: 'Sarah Johnson', email: 'sarah@example.com', role: 'athlete', sessions: 24, avgAccuracy: 87, status: 'active', joinDate: '2024-01-15' },
-  { id: '2', name: 'Emma Davis', email: 'emma@example.com', role: 'athlete', sessions: 18, avgAccuracy: 92, status: 'active', joinDate: '2024-02-20' },
-  { id: '3', name: 'Jessica Lee', email: 'jessica@example.com', role: 'coach', sessions: 42, avgAccuracy: 95, status: 'active', joinDate: '2023-12-10' },
-];
-
 export default function DarkAdminUsers() {
-  const [athletes, setAthletes] = useState<Athlete[]>(mockAthletes);
+  const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    try {
+      const users = await supabaseGetUsers();
+      setAthletes(users.map((u: any) => ({
+        id: u.id,
+        name: u.fullName,
+        email: u.email,
+        role: u.role === 'SystemManager' ? 'admin' : 'athlete',
+        sessions: 0,
+        avgAccuracy: 0,
+        status: 'active',
+        joinDate: u.createdAt ? u.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
+      })));
+    } catch (e) {
+      console.error('Failed to load users:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await supabaseDeleteUser(id);
+      setAthletes(prev => prev.filter(a => a.id !== id));
+    } catch (e) {
+      console.error('Failed to delete user:', e);
+    }
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
 
@@ -84,7 +113,6 @@ export default function DarkAdminUsers() {
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold ${
                       athlete.role === 'admin' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                      athlete.role === 'coach' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
                       'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                     }`}>
                       <Shield className="w-3 h-3" />

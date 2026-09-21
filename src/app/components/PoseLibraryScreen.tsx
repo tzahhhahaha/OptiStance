@@ -92,7 +92,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
         </div>
 
         {/* Category Pills */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] shrink-0 mr-1">
             Category:
           </span>

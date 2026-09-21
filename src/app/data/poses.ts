@@ -12,7 +12,7 @@ export const INITIAL_POSES: Pose[] = [
       { text: 'Keep shoulders level.', type: 'check' },
       { text: 'Avoid leaning.', type: 'warning' }
     ],
-    masteryPercentage: 100,
+    masteryPercentage: 0,
     imageUrl: 'https://lh3.googleusercontent.com/aida/AP1WRLtdvgNi1ZVZHfMBMys_LSZk_v9lssaxwkN3vuvkrR4RjY9k-C7Vw-LBKyLxzFWVX_EoBpM4T5mHYETOF_Kx0N85PQ-R8o9Um6-v99g31U7UWJbGNmKc3IZPwlQSnsS3PzcQ156VXIHE-RQn-5G7Ag5P0ciqtC7gX8MFC47OlE3fPcTdfC5En_tFQaiDNIIbztEGAouXzvHxBDnSWofuqoVj430gFEHu2hLj0QaumpFCXFMhDvwE7JszMQ',
     points: 100,
     idealAngles: {
@@ -181,7 +181,7 @@ export const INITIAL_POSES: Pose[] = [
       { text: 'Squeeze glutes and core to eliminate wobble.', type: 'check' },
       { text: 'Do not drop your chest forward.', type: 'warning' }
     ],
-    masteryPercentage: 85,
+    masteryPercentage: 0,
     imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCUcl56_A7zfok-a9F75sAwf6ISLbllV6eTPFBZR_VP7xn8MYh6GmHudSm2Vwcabvgtgvef2iAs7eMfiigTQDsuzSyYMMU-Eaaxp5TOj-UeCii2ig7C_FIXi_J7DbZRgCQdGkMDAn83oM3zY_XxVkyc_vK19_mQhRdOj8gLv44dKv8ZRQh_RYg01qB1SDhhYz1V4cb5FcljezfrudsLepB51YCAVCJXFXXytEspfOm1rZBkrTBULute',
     points: 150,
     idealAngles: {
@@ -234,7 +234,7 @@ export const INITIAL_POSES: Pose[] = [
       { text: 'Point toes hard all the way through landing.', type: 'check' },
       { text: 'Never drop chest to reach for toes.', type: 'warning' }
     ],
-    masteryPercentage: 70,
+    masteryPercentage: 0,
     imageUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC4f4-XM04Nh_vtE89eqzbrorhjaX2Of8IOIPRBqRUWItNidDhk_5ySyd8CLuRZOGft2AY6oKLlvw52sEg1P3Q3qEI76kWVqDW14mNKyogfJqhVMX4KJc5l_srPDGx9VZ8A92AF-Tzk_rHez4QU8V7bbh4TZiAdiOep8_gCOyMq2ntW7omLlBONO-n_pg4eOHq9eXxSUmeMjOe5I3czHVCYXocTUPvObdxZgFrpSg90WCcSbByppoi5',
     points: 200,
     idealAngles: {
@@ -286,7 +286,7 @@ export const INITIAL_POSES: Pose[] = [
       { text: 'Keep chest lifted and gaze forward.', type: 'check' },
       { text: 'Do not drop the rear knee or turn hip outward.', type: 'warning' }
     ],
-    masteryPercentage: 90,
+    masteryPercentage: 0,
     imageUrl: 'https://lh3.googleusercontent.com/aida/AP1WRLtdvgNi1ZVZHfMBMys_LSZk_v9lssaxwkN3vuvkrR4RjY9k-C7Vw-LBKyLxzFWVX_EoBpM4T5mHYETOF_Kx0N85PQ-R8o9Um6-v99g31U7UWJbGNmKc3IZPwlQSnsS3PzcQ156VXIHE-RQn-5G7Ag5P0ciqtC7gX8MFC47OlE3fPcTdfC5En_tFQaiDNIIbztEGAouXzvHxBDnSWofuqoVj430gFEHu2hLj0QaumpFCXFMhDvwE7JszMQ',
     points: 160,
     idealAngles: {
@@ -339,7 +339,7 @@ export const INITIAL_POSES: Pose[] = [
       { text: 'Pull leg directly to ear, keeping hips square.', type: 'check' },
       { text: 'Do not lean torso sideways to compensate.', type: 'warning' }
     ],
-    masteryPercentage: 60,
+    masteryPercentage: 0,
     imageUrl: 'https://lh3.googleusercontent.com/aida/AP1WRLtLDIqveNFWJolAhMnHzrJdPTZtXjFkp3UHwarqlyTUlY1yDHFFvJtI5RoTB-U3U3ZaQ8xQnS9myaoG5wh7VMBC4WsSMKD3ZSsVg0PYmjGYUzutFe7XsEz8wL5hVndgW7w6e4iwVoV8ZY2jLlDJUXk19rVYu2MoYtaNtiG6es6nb7Zfp0qNwuhGLt_0R4CeDD1YG0Y6XE3C2eww_k0NWbsZvdLzeLgb2xXGO7sDmIsVmk_Ikft411my1A',
     points: 220,
     idealAngles: {

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Eye, Grid3x3, List, Video, MessageSquare, AlertCircle } from 'lucide-react';
+import { supabaseGetStunts, supabaseDeleteStunt } from '../../../services/supabaseApi';
 
 interface Stunt {
   id: string;
@@ -12,15 +13,42 @@ interface Stunt {
   masteryRate: number;
 }
 
-const mockStunts: Stunt[] = [
-  { id: '1', name: 'Liberty', category: 'stunt', difficulty: 'advanced', refImage: '📸', coachingTips: 'Keep base leg locked', attempts: 342, masteryRate: 78 },
-  { id: '2', name: 'Scorpion', category: 'stunt', difficulty: 'advanced', refImage: '📸', coachingTips: 'Full body extension', attempts: 298, masteryRate: 65 },
-  { id: '3', name: 'High V', category: 'pom_motion', difficulty: 'beginner', refImage: '📸', coachingTips: 'Lock elbows completely', attempts: 512, masteryRate: 92 },
-  { id: '4', name: 'Heel Stretch', category: 'stunt', difficulty: 'advanced', refImage: '📸', coachingTips: 'Pointed toe extension', attempts: 187, masteryRate: 71 },
-];
-
 export default function DarkAdminContent() {
-  const [stunts, setStunts] = useState<Stunt[]>(mockStunts);
+  const [stunts, setStunts] = useState<Stunt[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadStunts();
+  }, []);
+
+  const loadStunts = async () => {
+    try {
+      const data = await supabaseGetStunts();
+      setStunts(data.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        category: s.category,
+        difficulty: s.difficulty_tier,
+        refImage: '📸',
+        coachingTips: s.coaching_cues || '',
+        attempts: 0,
+        masteryRate: 0,
+      })));
+    } catch (e) {
+      console.error('Failed to load stunts:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await supabaseDeleteStunt(id);
+      setStunts(prev => prev.filter(s => s.id !== id));
+    } catch (e) {
+      console.error('Failed to delete stunt:', e);
+    }
+  };
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedStunt, setSelectedStunt] = useState<Stunt | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);

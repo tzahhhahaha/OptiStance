@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeft, CheckCircle2, AlertTriangle, Video, Sparkles, Trophy, Lightbulb, Target } from 'lucide-react';
-import { Pose } from '../types';
+import { Pose, MASTERY_THRESHOLD } from '../types';
 
 interface PoseDetailScreenProps {
   pose: Pose;
@@ -13,7 +13,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
   onBack,
   onStartPractice
 }) => {
-  const isMastered = pose.masteryPercentage >= 90;
+  const isMastered = pose.masteryPercentage >= MASTERY_THRESHOLD;
   const isZero = pose.masteryPercentage === 0;
 
   return (
@@ -156,7 +156,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
               ? "You've mastered this pose! Keep practicing to maintain competition-ready perfection."
               : isZero
               ? "You haven't practiced this pose yet."
-              : "Sub-degree form detected. Complete more live camera reps to lock in 100% precision."}
+              : "Form estimate recorded. Complete more live camera reps to build a reliable trend."}
           </p>
 
           {/* Next Goal / Target Milestone */}

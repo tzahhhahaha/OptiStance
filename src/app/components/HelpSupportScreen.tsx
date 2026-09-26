@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  HelpCircle,
   Video,
   Upload,
   Search,
@@ -9,9 +8,6 @@ import {
   Send,
   CheckCircle2,
   ArrowLeft,
-  Sparkles,
-  ShieldAlert,
-  Info,
   X
 } from 'lucide-react';
 import { TabType } from './BottomNavBar';
@@ -28,7 +24,7 @@ interface FaqItem {
   answer: string;
 }
 
-export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, onNavigateTab, onContactSupport }) => {
+export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, onNavigateTab }) => {
   const [searchFaq, setSearchFaq] = useState('');
   const [expandedFaq, setExpandedFaq] = useState<string | null>('faq-1');
   const [showSupportModal, setShowSupportModal] = useState(false);
@@ -40,7 +36,7 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
       id: 'faq-1',
       question: 'How accurate is the pose estimation?',
       answer:
-        'Our AI model is trained on thousands of elite cheerleading routines and boasts a 95% accuracy rate under optimal lighting conditions. Ensure your full body is visible in the frame for best results.'
+        'The camera uses MediaPipe body landmarks and pose-shape heuristics. It provides an on-device estimate, not a clinically or competition-validated accuracy score. Ensure your full body is visible in the frame for best results.'
     },
     {
       id: 'faq-2',

@@ -14,7 +14,7 @@ interface DarkAdminPageProps {
 
 export function DarkAdminPage({ onBack, isAdmin, userName = 'Admin', userRole = 'admin' }: DarkAdminPageProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'content' | 'analytics' | 'settings'>('dashboard');
-  const [notifications, setNotifications] = useState(3);
+  const [notifications] = useState(3);
 
   if (!isAdmin) {
     return (
@@ -169,10 +169,10 @@ export function DarkAdminPage({ onBack, isAdmin, userName = 'Admin', userRole = 
 // Dashboard Overview Component
 function DarkAdminDashboard() {
   const stats = [
-    { label: 'Active Athletes', value: '47', trend: '+12%', icon: '👥' },
-    { label: 'Sessions Today', value: '156', trend: '+23%', icon: '🎯' },
-    { label: 'Avg Accuracy', value: '82.5%', trend: '+4.2%', icon: '📊' },
-    { label: 'Stunts Mastered', value: '312', trend: '+8%', icon: '⭐' },
+    { label: 'Active Athletes', value: 'Not measured', trend: 'Unavailable', icon: '👥' },
+    { label: 'Sessions Today', value: 'Not measured', trend: 'Unavailable', icon: '🎯' },
+    { label: 'Avg Accuracy', value: 'Not measured', trend: 'Unavailable', icon: '📊' },
+    { label: 'Stunts Mastered', value: 'Not measured', trend: 'Unavailable', icon: '⭐' },
   ];
 
   return (

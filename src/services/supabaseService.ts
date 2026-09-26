@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
-  User,
+  User as DbUser,
   AthleteProfile,
   Stunt,
   JointAngleStandard,
@@ -13,76 +14,149 @@ import type {
   UserRole,
 } from '@/types/supabase';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// ============================================================
+// Client bootstrap
+// ============================================================
+//
+// This module is the ONLY place the Supabase client is created and the only
+// place raw queries touch the database. Everything else in the app goes
+// through the typed services below (or the auth helpers in supabaseApi.ts).
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-// ============================================
+/** Whether the app has valid Supabase credentials to talk to the database. */
+export const isSupabaseConfigured = Boolean(envUrl && envKey);
+
+if (!isSupabaseConfigured) {
+  console.warn(
+    '[supabase] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are missing. ' +
+      'Accounts, cloud sync and admin panels will be unavailable until they are set in .env.local.'
+  );
+}
+
+/**
+ * A fail-fast placeholder used when Supabase is not configured. Every access
+ * throws a descriptive error instead of a confusing network/`undefined` error,
+ * so misconfiguration surfaces immediately (and only when a DB feature is
+ * actually used – normal flow is gated by `isSupabaseConfigured`).
+ */
+const createUnconfiguredClient = (): SupabaseClient => {
+  const throwError = (): never => {
+    throw new Error(
+      'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local ' +
+        'to enable authentication and database sync.'
+    );
+  };
+  const makeProxy = (): object =>
+    new Proxy(
+      {},
+      {
+        get: (_target, prop) => {
+          // Keep `auth.*` nested so `supabase.auth.signInWithPassword(...)`
+          // still throws the descriptive error rather than "not a function".
+          if (prop === 'auth') return makeProxy();
+          return () => {
+            throwError();
+          };
+        },
+      }
+    );
+  return makeProxy() as unknown as SupabaseClient;
+};
+
+export const supabase: SupabaseClient = isSupabaseConfigured
+  ? createClient(envUrl!, envKey!, {
+      auth: { persistSession: true, autoRefreshToken: true },
+    })
+  : createUnconfiguredClient();
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Log + rethrow the error. Returns `data` on success. */
+function unwrap<T>(data: unknown, error: unknown, context: string): T {
+  if (error) {
+    console.error(`[supabase] ${context}:`, error);
+    throw error;
+  }
+  return data as T;
+}
+
+/** Convenience for "0 or 1 row" reads: null when the row does not exist. */
+async function fetchMaybeSingle<T>(table: string, column: string, value: string, context: string): Promise<T | null> {
+  const { data, error } = await supabase
+    .from(table)
+    .select('*')
+    .eq(column, value)
+    .maybeSingle();
+  return unwrap<T | null>(data, error, context);
+}
+
+/**
+ * Practice sessions joined with the author + stunt for admin dashboards.
+ * The joined relations are nullable because FK targets may be missing/soft-deleted.
+ */
+export type SessionWithRelations = PracticeSession & {
+  users?: { full_name: string | null; email: string | null } | null;
+  stunts?: { name: string | null; category: string | null } | null;
+};
+
+/** Fields required to create a stunt (the rest have sensible DB defaults). */
+export type StuntInsert = Partial<Omit<Stunt, 'id' | 'created_at' | 'updated_at'>> & Pick<Stunt, 'name' | 'category'>;
+
+/** Shape of the `get_stunt_difficulty_insights` RPC rows. */
+export type StuntDifficultyInsight = {
+  difficulty_tier?: string | null;
+  average_accuracy?: number | null;
+  total_sessions?: number | null;
+  [key: string]: unknown;
+};
+
+// ============================================================
 // USER MANAGEMENT
-// ============================================
+// ============================================================
 
 export const userService = {
-  async getUser(userId: string): Promise<User | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (error) console.error('Error fetching user:', error);
-    return data;
+  async getUser(userId: string): Promise<DbUser | null> {
+    return fetchMaybeSingle<DbUser>('users', 'id', userId, 'fetch user');
   },
 
-  async getAllUsers(): Promise<User[]> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching users:', error);
-    return data || [];
+  async getProfileByEmail(email: string): Promise<DbUser | null> {
+    const { data, error } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
+    return unwrap<DbUser | null>(data, error, 'fetch user by email');
   },
 
-  async updateUserRole(userId: string, role: UserRole): Promise<boolean> {
-    const { error } = await supabase
-      .from('users')
-      .update({ role })
-      .eq('id', userId);
-    if (error) console.error('Error updating user role:', error);
-    return !error;
+  async getAllUsers(): Promise<DbUser[]> {
+    const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+    return unwrap<DbUser[]>(data ?? [], error, 'fetch users');
   },
 
-  async deleteUser(userId: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('users')
-      .update({ is_active: false })
-      .eq('id', userId);
-    if (error) console.error('Error deleting user:', error);
-    return !error;
+  async updateUserRole(userId: string, role: UserRole): Promise<void> {
+    const { error } = await supabase.from('users').update({ role }).eq('id', userId);
+    unwrap(null, error, `update role of user ${userId}`);
+  },
+
+  /** Soft-delete: flips `is_active` to false (rows are never hard-deleted). */
+  async deleteUser(userId: string): Promise<void> {
+    const { error } = await supabase.from('users').update({ is_active: false }).eq('id', userId);
+    unwrap(null, error, `deactivate user ${userId}`);
   },
 
   async getAthleteProfile(userId: string): Promise<AthleteProfile | null> {
-    const { data, error } = await supabase
-      .from('athlete_profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
-    if (error) console.error('Error fetching athlete profile:', error);
-    return data;
+    return fetchMaybeSingle<AthleteProfile>('athlete_profiles', 'user_id', userId, 'fetch athlete profile');
   },
 
-  async updateAthleteProfile(userId: string, updates: Partial<AthleteProfile>): Promise<boolean> {
-    const { error } = await supabase
-      .from('athlete_profiles')
-      .update(updates)
-      .eq('user_id', userId);
-    if (error) console.error('Error updating athlete profile:', error);
-    return !error;
+  async updateAthleteProfile(userId: string, updates: Partial<AthleteProfile>): Promise<void> {
+    const { error } = await supabase.from('athlete_profiles').update(updates).eq('user_id', userId);
+    unwrap(null, error, `update athlete profile ${userId}`);
   },
 };
 
-// ============================================
+// ============================================================
 // STUNT MANAGEMENT
-// ============================================
+// ============================================================
 
 export const stuntService = {
   async getAllStunts(): Promise<Stunt[]> {
@@ -91,56 +165,46 @@ export const stuntService = {
       .select('*')
       .eq('is_archived', false)
       .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching stunts:', error);
-    return data || [];
+    return unwrap<Stunt[]>(data ?? [], error, 'fetch stunts');
   },
 
   async getStunt(stuntId: string): Promise<Stunt | null> {
-    const { data, error } = await supabase
-      .from('stunts')
-      .select('*')
-      .eq('id', stuntId)
-      .single();
-    if (error) console.error('Error fetching stunt:', error);
-    return data;
+    return fetchMaybeSingle<Stunt>('stunts', 'id', stuntId, 'fetch stunt');
   },
 
-  async createStunt(stunt: Omit<Stunt, 'id' | 'created_at' | 'updated_at'>): Promise<Stunt | null> {
-    const { data, error } = await supabase
-      .from('stunts')
-      .insert([stunt])
-      .select()
-      .single();
-    if (error) console.error('Error creating stunt:', error);
-    return data;
+  async getStuntByName(name: string): Promise<Stunt | null> {
+    const { data, error } = await supabase.from('stunts').select('id').eq('name', name).maybeSingle();
+    return unwrap<Stunt | null>(data, error, `fetch stunt by name "${name}"`);
   },
 
-  async updateStunt(stuntId: string, updates: Partial<Stunt>): Promise<boolean> {
+  async createStunt(stunt: StuntInsert): Promise<Stunt> {
+    const { data, error } = await supabase.from('stunts').insert([stunt]).select().single();
+    return unwrap<Stunt>(data, error, 'create stunt');
+  },
+
+  async updateStunt(stuntId: string, updates: Partial<Stunt>): Promise<void> {
     const { error } = await supabase
       .from('stunts')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', stuntId);
-    if (error) console.error('Error updating stunt:', error);
-    return !error;
+    unwrap(null, error, `update stunt ${stuntId}`);
   },
 
-  async archiveStunt(stuntId: string): Promise<boolean> {
-    return stuntService.updateStunt(stuntId, { is_archived: true });
+  /** Soft-delete from the app-facing library (keeps historical session links). */
+  async archiveStunt(stuntId: string): Promise<void> {
+    await this.updateStunt(stuntId, { is_archived: true });
   },
 
-  async deleteStunt(stuntId: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('stunts')
-      .delete()
-      .eq('id', stuntId);
-    if (error) console.error('Error deleting stunt:', error);
-    return !error;
+  /** Hard-delete – only safe for stunts with no historical sessions. */
+  async deleteStunt(stuntId: string): Promise<void> {
+    const { error } = await supabase.from('stunts').delete().eq('id', stuntId);
+    unwrap(null, error, `delete stunt ${stuntId}`);
   },
 };
 
-// ============================================
+// ============================================================
 // JOINT ANGLE STANDARDS (ICU Calibration)
-// ============================================
+// ============================================================
 
 export const jointAngleService = {
   async getStuntJointAngles(stuntId: string): Promise<JointAngleStandard[]> {
@@ -149,42 +213,33 @@ export const jointAngleService = {
       .select('*')
       .eq('stunt_id', stuntId)
       .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching joint angles:', error);
-    return data || [];
+    return unwrap<JointAngleStandard[]>(data ?? [], error, 'fetch joint angles');
   },
 
-  async createJointAngle(angle: Omit<JointAngleStandard, 'id' | 'created_at' | 'updated_at'>): Promise<JointAngleStandard | null> {
-    const { data, error } = await supabase
-      .from('joint_angle_standards')
-      .insert([angle])
-      .select()
-      .single();
-    if (error) console.error('Error creating joint angle:', error);
-    return data;
+  async createJointAngle(
+    angle: Omit<JointAngleStandard, 'id' | 'created_at' | 'updated_at'>
+  ): Promise<JointAngleStandard> {
+    const { data, error } = await supabase.from('joint_angle_standards').insert([angle]).select().single();
+    return unwrap<JointAngleStandard>(data, error, 'create joint angle');
   },
 
-  async updateJointAngle(angleId: string, updates: Partial<JointAngleStandard>): Promise<boolean> {
+  async updateJointAngle(angleId: string, updates: Partial<JointAngleStandard>): Promise<void> {
     const { error } = await supabase
       .from('joint_angle_standards')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', angleId);
-    if (error) console.error('Error updating joint angle:', error);
-    return !error;
+    unwrap(null, error, `update joint angle ${angleId}`);
   },
 
-  async deleteJointAngle(angleId: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('joint_angle_standards')
-      .delete()
-      .eq('id', angleId);
-    if (error) console.error('Error deleting joint angle:', error);
-    return !error;
+  async deleteJointAngle(angleId: string): Promise<void> {
+    const { error } = await supabase.from('joint_angle_standards').delete().eq('id', angleId);
+    unwrap(null, error, `delete joint angle ${angleId}`);
   },
 };
 
-// ============================================
+// ============================================================
 // PRACTICE SESSIONS & TELEMETRY
-// ============================================
+// ============================================================
 
 export const sessionService = {
   async getAthleteSessionHistory(userId: string): Promise<PracticeSession[]> {
@@ -193,40 +248,30 @@ export const sessionService = {
       .select('*')
       .eq('user_id', userId)
       .order('session_date', { ascending: false });
-    if (error) console.error('Error fetching sessions:', error);
-    return data || [];
+    return unwrap<PracticeSession[]>(data ?? [], error, 'fetch sessions');
   },
 
-  async getAllSessions(): Promise<PracticeSession[]> {
+  async getAllSessions(): Promise<SessionWithRelations[]> {
     const { data, error } = await supabase
       .from('practice_sessions')
-      .select(`
-        *,
-        users:user_id(full_name, email),
-        stunts:stunt_id(name, category)
-      `)
+      .select('*, users:user_id(full_name, email), stunts:stunt_id(name, category)')
       .order('session_date', { ascending: false });
-    if (error) console.error('Error fetching all sessions:', error);
-    return data || [];
+    return unwrap<SessionWithRelations[]>(data ?? [], error, 'fetch all sessions');
   },
 
-  async createSession(session: Omit<PracticeSession, 'id' | 'created_at' | 'updated_at'>): Promise<PracticeSession | null> {
-    const { data, error } = await supabase
-      .from('practice_sessions')
-      .insert([session])
-      .select()
-      .single();
-    if (error) console.error('Error creating session:', error);
-    return data;
+  async createSession(
+    session: Omit<PracticeSession, 'id' | 'created_at' | 'updated_at'>
+  ): Promise<PracticeSession> {
+    const { data, error } = await supabase.from('practice_sessions').insert([session]).select().single();
+    return unwrap<PracticeSession>(data, error, 'create session');
   },
 
-  async updateSession(sessionId: string, updates: Partial<PracticeSession>): Promise<boolean> {
+  async updateSession(sessionId: string, updates: Partial<PracticeSession>): Promise<void> {
     const { error } = await supabase
       .from('practice_sessions')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', sessionId);
-    if (error) console.error('Error updating session:', error);
-    return !error;
+    unwrap(null, error, `update session ${sessionId}`);
   },
 
   async getSessionCorrections(sessionId: string): Promise<JointCorrection[]> {
@@ -235,24 +280,18 @@ export const sessionService = {
       .select('*')
       .eq('session_id', sessionId)
       .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching corrections:', error);
-    return data || [];
+    return unwrap<JointCorrection[]>(data ?? [], error, 'fetch corrections');
   },
 
-  async addJointCorrection(correction: Omit<JointCorrection, 'id' | 'created_at'>): Promise<JointCorrection | null> {
-    const { data, error } = await supabase
-      .from('joint_corrections')
-      .insert([correction])
-      .select()
-      .single();
-    if (error) console.error('Error adding correction:', error);
-    return data;
+  async addJointCorrection(correction: Omit<JointCorrection, 'id' | 'created_at'>): Promise<JointCorrection> {
+    const { data, error } = await supabase.from('joint_corrections').insert([correction]).select().single();
+    return unwrap<JointCorrection>(data, error, 'add correction');
   },
 };
 
-// ============================================
+// ============================================================
 // SUPPORT TICKETS & HELP DESK
-// ============================================
+// ============================================================
 
 export const ticketService = {
   async getAthleteTickets(userId: string): Promise<SupportTicket[]> {
@@ -261,46 +300,37 @@ export const ticketService = {
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching tickets:', error);
-    return data || [];
+    return unwrap<SupportTicket[]>(data ?? [], error, 'fetch tickets');
   },
 
-  async getAllTickets(): Promise<SupportTicket[]> {
+  async getAllTickets(): Promise<
+    Array<SupportTicket & { users?: { full_name: string | null; email: string | null } | null }>
+  > {
     const { data, error } = await supabase
       .from('support_tickets')
       .select('*, users:user_id(full_name, email)')
       .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching all tickets:', error);
-    return data || [];
+    return unwrap(data ?? [], error, 'fetch all tickets');
   },
 
-  async createTicket(ticket: Omit<SupportTicket, 'id' | 'created_at' | 'updated_at'>): Promise<SupportTicket | null> {
-    const { data, error } = await supabase
-      .from('support_tickets')
-      .insert([ticket])
-      .select()
-      .single();
-    if (error) console.error('Error creating ticket:', error);
-    return data;
+  async createTicket(
+    ticket: Omit<SupportTicket, 'id' | 'created_at' | 'updated_at'>
+  ): Promise<SupportTicket> {
+    const { data, error } = await supabase.from('support_tickets').insert([ticket]).select().single();
+    return unwrap<SupportTicket>(data, error, 'create ticket');
   },
 
-  async updateTicketStatus(ticketId: string, status: SupportTicket['status']): Promise<boolean> {
+  async updateTicketStatus(ticketId: string, status: SupportTicket['status']): Promise<void> {
     const { error } = await supabase
       .from('support_tickets')
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', ticketId);
-    if (error) console.error('Error updating ticket status:', error);
-    return !error;
+    unwrap(null, error, `update ticket status ${ticketId}`);
   },
 
-  async addReply(reply: Omit<TicketReply, 'id' | 'created_at'>): Promise<TicketReply | null> {
-    const { data, error } = await supabase
-      .from('ticket_replies')
-      .insert([reply])
-      .select()
-      .single();
-    if (error) console.error('Error adding reply:', error);
-    return data;
+  async addReply(reply: Omit<TicketReply, 'id' | 'created_at'>): Promise<TicketReply> {
+    const { data, error } = await supabase.from('ticket_replies').insert([reply]).select().single();
+    return unwrap<TicketReply>(data, error, 'add reply');
   },
 
   async getTicketReplies(ticketId: string): Promise<TicketReply[]> {
@@ -309,14 +339,13 @@ export const ticketService = {
       .select('*')
       .eq('ticket_id', ticketId)
       .order('created_at', { ascending: true });
-    if (error) console.error('Error fetching replies:', error);
-    return data || [];
+    return unwrap<TicketReply[]>(data ?? [], error, 'fetch replies');
   },
 };
 
-// ============================================
+// ============================================================
 // MEDIA MANAGEMENT
-// ============================================
+// ============================================================
 
 export const mediaService = {
   async getSessionMedia(sessionId: string): Promise<MediaUpload[]> {
@@ -325,8 +354,7 @@ export const mediaService = {
       .select('*')
       .eq('session_id', sessionId)
       .order('uploaded_at', { ascending: false });
-    if (error) console.error('Error fetching media:', error);
-    return data || [];
+    return unwrap<MediaUpload[]>(data ?? [], error, 'fetch media');
   },
 
   async getUserMedia(userId: string): Promise<MediaUpload[]> {
@@ -335,52 +363,50 @@ export const mediaService = {
       .select('*')
       .eq('user_id', userId)
       .order('uploaded_at', { ascending: false });
-    if (error) console.error('Error fetching user media:', error);
-    return data || [];
+    return unwrap<MediaUpload[]>(data ?? [], error, 'fetch user media');
   },
 
-  async uploadMedia(media: Omit<MediaUpload, 'id' | 'uploaded_at'>): Promise<MediaUpload | null> {
-    const { data, error } = await supabase
-      .from('media_uploads')
-      .insert([media])
-      .select()
-      .single();
-    if (error) console.error('Error uploading media:', error);
-    return data;
+  async uploadMedia(media: Omit<MediaUpload, 'id' | 'uploaded_at'>): Promise<MediaUpload> {
+    const { data, error } = await supabase.from('media_uploads').insert([media]).select().single();
+    return unwrap<MediaUpload>(data, error, 'upload media');
   },
 
-  async deleteMedia(mediaId: string): Promise<boolean> {
-    const { error } = await supabase
-      .from('media_uploads')
-      .delete()
-      .eq('id', mediaId);
-    if (error) console.error('Error deleting media:', error);
-    return !error;
+  async deleteMedia(mediaId: string): Promise<void> {
+    const { error } = await supabase.from('media_uploads').delete().eq('id', mediaId);
+    unwrap(null, error, `delete media ${mediaId}`);
   },
 
+  /**
+   * Total bytes stored across all media uploads. Prefers the server-side
+   * aggregate RPC (constant round-trips regardless of row count) and falls back
+   * to a client-side sum if the RPC is not deployed yet.
+   */
   async getTotalStorageUsage(): Promise<number> {
-    const { data, error } = await supabase
-      .from('media_uploads')
-      .select('file_size_bytes');
-    if (error) console.error('Error fetching storage usage:', error);
-    return (data || []).reduce((sum, item) => sum + (item.file_size_bytes || 0), 0);
+    const rpcResult = await supabase.rpc('get_total_storage_usage');
+    if (!rpcResult.error && typeof rpcResult.data === 'number') {
+      return rpcResult.data;
+    }
+
+    const { data, error } = await supabase.from('media_uploads').select('file_size_bytes');
+    unwrap(null, error, 'fetch storage usage');
+    return (data ?? []).reduce((sum, row) => sum + (row.file_size_bytes ?? 0), 0);
   },
 };
 
-// ============================================
+// ============================================================
 // ANALYTICS
-// ============================================
+// ============================================================
 
 export const analyticsService = {
+  /** Latest snapshot, or null when none has been generated yet. */
   async getLatestAnalytics(): Promise<AnalyticsSnapshot | null> {
     const { data, error } = await supabase
       .from('analytics_snapshots')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
-    if (error) console.error('Error fetching analytics:', error);
-    return data;
+      .maybeSingle();
+    return unwrap<AnalyticsSnapshot | null>(data, error, 'fetch analytics');
   },
 
   async getAnalyticsHistory(days: number = 30): Promise<AnalyticsSnapshot[]> {
@@ -392,15 +418,12 @@ export const analyticsService = {
       .select('*')
       .gte('date', startDate.toISOString().split('T')[0])
       .order('date', { ascending: false });
-    if (error) console.error('Error fetching analytics history:', error);
-    return data || [];
+    return unwrap<AnalyticsSnapshot[]>(data ?? [], error, 'fetch analytics history');
   },
 
-  async getStuntDifficultiesInsights(): Promise<any[]> {
-    const { data, error } = await supabase
-      .rpc('get_stunt_difficulty_insights');
-    if (error) console.error('Error fetching insights:', error);
-    return data || [];
+  async getStuntDifficultiesInsights(): Promise<StuntDifficultyInsight[]> {
+    const { data, error } = await supabase.rpc('get_stunt_difficulty_insights');
+    return unwrap<StuntDifficultyInsight[]>(data ?? [], error, 'fetch insights');
   },
 };
 

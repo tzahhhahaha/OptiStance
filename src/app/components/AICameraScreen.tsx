@@ -12,23 +12,29 @@ import {
   BarChart2,
   CheckCircle2,
   AlertCircle,
-  Play,
   RotateCcw,
   Sparkles,
   Award,
-  ChevronDown
+  ChevronDown,
+  Lock,
+  AlertTriangle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Pose as MediaPipePose, POSE_CONNECTIONS } from '@mediapipe/pose';
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
-import { Pose, PracticeSession } from '../types';
-import { analyzePomMotion } from './poseLibrary';
+import { Pose, PracticeSession, MASTERY_THRESHOLD } from '../types';
+import { analyzePomMotion, calculateMeasuredAngles } from './poseLibrary';
 import { audioCoach } from '../utils/audio';
-import {Camera} from '@capacitor/camera'
+import { getRecommendedCameraFacing, getCameraConstraints, isCapacitorNative, CameraFacing } from '../utils/device';
+import { isPoseLocked, visiblePosesFor } from '../utils/access';
+import { mediapipeLocateFile, verifyMediapipeAssets } from '../utils/mediapipeAssets';
+import { Camera, CameraDirection, MediaType } from '@capacitor/camera';
 
 interface AICameraScreenProps {
   initialPose?: Pose | null;
   allPoses: Pose[];
+  /** Verified athletes unlock Intermediate + Advanced target poses. */
+  isVerified: boolean;
   audioCuesEnabled?: boolean;
   onClose: () => void;
   onSaveSession: (session: PracticeSession) => void;
@@ -37,6 +43,7 @@ interface AICameraScreenProps {
 export const AICameraScreen: React.FC<AICameraScreenProps> = ({
   initialPose,
   allPoses,
+  isVerified,
   audioCuesEnabled = true,
   onClose,
   onSaveSession
@@ -46,7 +53,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
   const [audioEnabled, setAudioEnabled] = useState(audioCuesEnabled);
   const [timerDuration, setTimerDuration] = useState<number>(3); // 0, 3, 5
   const [flashOn, setFlashOn] = useState(false);
-  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>(() => getRecommendedCameraFacing());
   const [useWebcam, setUseWebcam] = useState(true);
   const [accuracy, setAccuracy] = useState<number>(0);
   const [ringAccuracy, setRingAccuracy] = useState<number>(0);
@@ -58,9 +65,21 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [lastCapturedSession, setLastCapturedSession] = useState<PracticeSession | null>(null);
   const [customMediaUrl, setCustomMediaUrl] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
+  // Set when the bundled pose engine is missing or fails to initialise. Without
+  // this the camera screen sits on a black video with no landmarks and no
+  // explanation, which reads as "the app is broken".
+  const [poseEngineError, setPoseEngineError] = useState<string | null>(null);
 
   const activeTargetPose = currentPose ?? initialPose ?? null;
   const showTargetSelector = !initialPose;
+
+  // Unverified athletes only see beginner-grade target poses in the selector.
+  const accessiblePoses = visiblePosesFor(allPoses, isVerified);
+
+  // Running inside the Capacitor native shell (installed iOS/Android app) —
+  // used to pick between WebView getUserMedia and the native camera plugin.
+  const isNative = isCapacitorNative();
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -70,9 +89,36 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
   const frameLoopRef = useRef<number | null>(null);
   const currentPoseRef = useRef<Pose | null>(currentPose);
 
+  // Live value mirrors so frame handlers and capture can read fresh values
+  // without re-rendering or capturing stale closure state.
+  const accuracyRef = useRef<number>(0);
+  const detectedPoseNameRef = useRef<string>('No pose detected');
+  const measuredAnglesRef = useRef<Record<string, number>>({});
+  const lastCapturedAccuracyRef = useRef<number | null>(null);
+  const lastDetectedNameRef = useRef<string>('No pose detected');
+
+  // Countdown interval + session timer refs (cleaned up on unmount).
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionStartRef = useRef<number>(Date.now());
+  const customMediaUrlRef = useRef<string | null>(null);
+
   useEffect(() => {
     currentPoseRef.current = currentPose;
   }, [currentPose]);
+
+  // Revoke the object URL when a new one replaces it and on unmount.
+  useEffect(() => {
+    return () => {
+      if (customMediaUrlRef.current) {
+        URL.revokeObjectURL(customMediaUrlRef.current);
+        customMediaUrlRef.current = null;
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!initialPose) {
@@ -88,7 +134,43 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
     setShowCorrectionBanner(true);
   }, [initialPose]);
 
+  // Gating fallback: if an unverified athlete is somehow holding a non-beginner
+  // target pose (passed in via initialPose, a stale ID, or a race), stop the
+  // camera stream and block rendering with the access-denied modal. Dropping
+  // useWebcam to false forces the camera-init effect below to tear down the
+  // stream (the init effect runs after this one on mount).
+  useEffect(() => {
+    const locked = activeTargetPose && isPoseLocked(activeTargetPose, isVerified);
+    if (locked) {
+      stopCamera();
+      setUseWebcam(false);
+      setAccessDenied(true);
+    } else if (accessDenied) {
+      // The block was lifted (verification came back, or the target changed).
+      setAccessDenied(false);
+      setUseWebcam(true);
+    }
+    // activeTargetPose identity can change via initialPose without changing id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTargetPose?.id, isVerified]);
+
+  const handleCloseAccessDenied = () => {
+    setAccessDenied(false);
+    setCurrentPose(null);
+    setDetectedPoseName('No pose detected');
+    setShowCorrectionBanner(false);
+    audioCoach.stop();
+    // Re-engage the camera-init effect to start the stream again.
+    setUseWebcam(true);
+  };
+
   // Initialize camera or athletic backdrop
+  //
+  // Deps are deliberately limited to cameraFacing and useWebcam. startCamera,
+  // stopCamera and cleanupPose are re-created on every render, so listing them
+  // here would tear the media stream down and re-request getUserMedia on every
+  // single render. The two state values are the only real triggers: flipping
+  // the camera, or the verification gate above dropping useWebcam to false.
   useEffect(() => {
     if (useWebcam) {
       startCamera();
@@ -100,6 +182,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
       stopCamera();
       cleanupPose();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraFacing, useWebcam]);
 
   // When pose changes, update the target correction message without overriding live detection accuracy.
@@ -200,12 +283,23 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
     }
   };
 
-  const initializePose = () => {
-    if (!videoRef.current || poseRef.current) return;
+  const initializePose = async () => {
+    if (!videoRef.current || poseRef.current || poseEngineError) return;
+
+    // Confirm the vendored WASM/model files are actually in the bundle before
+    // constructing the engine, so a skipped vendor step surfaces as a clear
+    // message rather than a silently dead camera.
+    const assetError = await verifyMediapipeAssets();
+    if (assetError) {
+      console.error('[mediapipe]', assetError);
+      setPoseEngineError(assetError);
+      return;
+    }
 
     try {
       const pose = new MediaPipePose({
-        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+        // Served from the app bundle, not a CDN, so detection works offline.
+        locateFile: mediapipeLocateFile,
       });
 
       pose.setOptions({
@@ -247,42 +341,56 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
             acc[index] = { x: landmark.x, y: landmark.y, z: landmark.z };
             return acc;
           }, {}));
-
-          if (!targetPose) {
-            if (poseAnalysis.pose && visibilityStatus.isStrong && poseAnalysis.confidence >= 0.78) {
-              setDetectedPoseName(poseAnalysis.pose.name);
-              const validPoseScore = Math.max(0, Math.min(100, Math.round(poseAnalysis.confidence * 100)));
-              setAccuracy(validPoseScore);
-            } else {
-              setDetectedPoseName('No pose detected');
-              setAccuracy(0);
-            }
-          }
-
-          if (targetPose) {
-            if (!visibilityStatus.isEnough) {
-              setAccuracy(0);
-              setCustomCorrection('Adjust framing: keep the full body visible and turn toward the camera.');
-              setShowCorrectionBanner(true);
-            } else if (customCorrection) {
-              setShowCorrectionBanner(true);
-            }
-          }
+          measuredAnglesRef.current = calculateMeasuredAngles(results.poseLandmarks.reduce((acc: Record<number, { x: number; y: number; z?: number }>, landmark: any, index: number) => {
+            acc[index] = { x: landmark.x, y: landmark.y, z: landmark.z };
+            return acc;
+          }, {}));
 
           const hasValidPose = poseAnalysis.pose && visibilityStatus.isStrong && poseAnalysis.confidence >= 0.45;
           const poseMatchConfidence = Math.max(0, Math.min(100, Math.round(poseAnalysis.confidence * 100)));
 
+          // Compute this frame's values without triggering state updates yet.
+          let nextDetectedName = detectedPoseNameRef.current;
+          let nextAccuracy = accuracyRef.current;
+
+          if (!targetPose) {
+            if (poseAnalysis.pose && visibilityStatus.isStrong && poseAnalysis.confidence >= 0.78) {
+              nextDetectedName = poseAnalysis.pose.name;
+              nextAccuracy = poseMatchConfidence;
+            } else {
+              nextDetectedName = 'No pose detected';
+              nextAccuracy = 0;
+            }
+          }
+
           if (targetPose) {
             if (!visibilityStatus.isEnough) {
-              setAccuracy(0);
+              nextAccuracy = 0;
+              if (lastDetectedNameRef.current !== 'Adjust framing') {
+                setCustomCorrection('Adjust framing: keep the full body visible and turn toward the camera.');
+                setShowCorrectionBanner(true);
+              }
             } else if (hasValidPose) {
-              setAccuracy(poseMatchConfidence);
+              nextAccuracy = poseMatchConfidence;
             } else {
-              setAccuracy(Math.max(0, Math.round(poseMatchConfidence * 0.4)));
+              nextAccuracy = Math.max(0, Math.round(poseMatchConfidence * 0.4));
             }
           } else {
-            setAccuracy(hasValidPose ? poseMatchConfidence : 0);
+            nextAccuracy = hasValidPose ? poseMatchConfidence : 0;
           }
+
+          // Only re-render when the displayed values actually change, so the
+          // per-frame analysis loop doesn't trigger a React render every frame.
+          if (nextDetectedName !== lastDetectedNameRef.current) {
+            lastDetectedNameRef.current = nextDetectedName;
+            setDetectedPoseName(nextDetectedName);
+          }
+          if (nextAccuracy !== lastCapturedAccuracyRef.current) {
+            lastCapturedAccuracyRef.current = nextAccuracy;
+            setAccuracy(nextAccuracy);
+          }
+          accuracyRef.current = nextAccuracy;
+          detectedPoseNameRef.current = nextDetectedName;
         }
       });
 
@@ -307,32 +415,76 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
     }
   };
 
+  /**
+   * Native (Capacitor) still capture. WKWebView (iOS) has no getUserMedia at
+   * all, and some Android WebViews refuse it — so inside the app shell we open
+   * the phone camera with the @capacitor/camera plugin and feed the captured
+   * photo through the SAME live MediaPipe loop: the photo is loaded into the
+   * <video> element (a video element renders a still image and reports
+   * readyState >= 2), so scores, corrections, and snapshots all work as usual.
+   */
+  const takeNativePhoto = async (facing: CameraFacing = cameraFacing): Promise<boolean> => {
+    try {
+      const result = await Camera.takePhoto({
+        quality: 90,
+        targetWidth: 1280,
+        targetHeight: 720,
+        correctOrientation: true,
+        cameraDirection: facing === 'environment' ? CameraDirection.Rear : CameraDirection.Front,
+        editable: 'no',
+        saveToGallery: false,
+      });
+      if (result.type !== MediaType.Photo) return false;
+
+      // webPath (capacitor://…) is directly renderable; thumbnail (base64 JPEG)
+      // is a valid fallback on Web.
+      const src = result.webPath ?? (result.thumbnail ? `data:image/jpeg;base64,${result.thumbnail}` : null);
+      if (!src) return false;
+
+      if (customMediaUrlRef.current) {
+        URL.revokeObjectURL(customMediaUrlRef.current);
+        customMediaUrlRef.current = null;
+      }
+      setCustomMediaUrl(src);
+
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = null;
+        video.src = src;
+        video.onloadeddata = () => void initializePose();
+      }
+      return true;
+    } catch (err) {
+      console.error('Native camera capture failed:', err);
+      return false;
+    }
+  };
+
   const startCamera = async () => {
     if (!useWebcam) return;
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: cameraFacing,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints(cameraFacing));
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
-          initializePose();
+          void initializePose();
         };
         videoRef.current.onloadeddata = () => {
-          initializePose();
+          void initializePose();
         };
       }
-    } catch {
+    } catch (err) {
+      // Inside the native shell (iOS WKWebView has no getUserMedia; some Android
+      // WebViews refuse it) fall back to the phone's native camera for a still.
+      if (isNative && (await takeNativePhoto())) {
+        return;
+      }
       // Fallback to simulator video/photo
+      console.warn('Webcam unavailable — using media/backdrop mode:', err);
       setUseWebcam(false);
     }
   };
@@ -369,27 +521,40 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setCustomMediaUrl(url);
-      setUseWebcam(false);
-      setAccuracy(92);
-      audioCoach.playSuccessBeep();
-      audioCoach.speakCue('Analyzing uploaded cheer media', audioEnabled);
+    if (!file) return;
+
+    // Revoke the previous object URL before creating a new one.
+    if (customMediaUrlRef.current) {
+      URL.revokeObjectURL(customMediaUrlRef.current);
     }
+
+    const url = URL.createObjectURL(file);
+    customMediaUrlRef.current = url;
+    setCustomMediaUrl(url);
+    setUseWebcam(false);
+
+    // Uploaded media is previewed only – live analysis runs on the webcam
+    // feed, so reset any previous score instead of faking one.
+    setAccuracy(0);
+    accuracyRef.current = 0;
+    setRingAccuracy(0);
+
+    audioCoach.playSuccessBeep();
+    audioCoach.speakCue('Media loaded. Capture to score the pose.', audioEnabled);
+
+    // Allow re-selecting the same file.
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const triggerCapture = () => {
+    if (countdown !== null) return; // already counting down
+
     if (timerDuration > 0) {
       setCountdown(timerDuration);
-      const interval = setInterval(() => {
+      countdownIntervalRef.current = setInterval(() => {
         setCountdown((prev) => {
-          if (prev === null || prev <= 1) {
-            clearInterval(interval);
-            executeSnapshot();
-            return null;
-          }
-          audioCoach.playWarningBeep();
+          if (prev === null) return null;
+          if (prev > 1) audioCoach.playWarningBeep();
           return prev - 1;
         });
       }, 1000);
@@ -397,6 +562,19 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
       executeSnapshot();
     }
   };
+
+  // When the countdown reaches 0, stop the timer and run the capture.
+  useEffect(() => {
+    if (countdown === 0) {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      setCountdown(null);
+      executeSnapshot();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown]);
 
   const executeSnapshot = () => {
     const poseToUse = currentPose ?? activeTargetPose ?? allPoses[0];
@@ -407,34 +585,48 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
 
     setTimeout(() => {
       setIsCapturing(false);
-      // Use the REAL pose detection accuracy from the analysis, not a random value.
-      // If no pose is currently detected (accuracy=0), reflect that honestly in the score.
-      const finalScore = Math.max(0, Math.min(100, Math.round(accuracy)));
-      const icuGrade = finalScore >= 90 ? 9.8 : finalScore >= 80 ? 8.9 : finalScore >= 60 ? 6.5 : 4.2;
+      // Use the REAL pose detection accuracy from the analysis, not a fake
+      // value. If no pose was detected (accuracy = 0) that is reflected
+      // honestly in the score and feedback.
+      const finalScore = Math.max(0, Math.min(100, Math.round(accuracyRef.current)));
+
+      // Stamp the session with the real capture time (ISO) and the real elapsed
+      // practice time since the previous capture, so session history and
+      // offline sync stay consistent.
+      const capturedAt = new Date();
+      const durationSeconds = Math.max(1, Math.round((capturedAt.getTime() - sessionStartRef.current) / 1000));
 
       const newSession: PracticeSession = {
         id: `sess-${Date.now()}`,
         poseId: poseToUse.id,
         poseName: poseToUse.name,
-        timestamp: 'Just now',
+        timestamp: capturedAt.toISOString(),
         accuracyScore: finalScore,
-        durationSeconds: 45,
-        corrections: [
-          finalScore >= 90
-            ? 'Optimal kinematic form maintained'
-            : customCorrection || 'Maintain core engagement and locked joint alignment',
-          'ICU Rulebook compliance verified'
-        ],
-        icuScore: icuGrade,
+        durationSeconds,
+        corrections:
+          finalScore >= 60
+            ? [
+                finalScore >= 90
+                  ? 'Optimal kinematic form maintained'
+                  : customCorrection || 'Maintain core engagement and locked joint alignment',
+                'Joint angles captured for coach review; ICU compliance requires a qualified review.'
+              ]
+            : ['No pose match detected — adjust framing and try again.'],
+        measuredAngles: { ...measuredAnglesRef.current },
         feedbackSummary:
           finalScore >= 90
             ? 'Superb joint alignment! Ready for routine integration.'
-            : 'Good hold! Refine extension on highlighted joint markers.'
+            : finalScore >= 60
+              ? 'Good hold! Refine extension on highlighted joint markers.'
+              : 'No detectable pose match this capture — reposition and try again.'
       };
 
       setLastCapturedSession(newSession);
       onSaveSession(newSession);
       setSummaryModalOpen(true);
+
+      // The next capture measures its own practice interval.
+      sessionStartRef.current = capturedAt.getTime();
 
       if (finalScore >= 88) {
         audioCoach.playSuccessBeep();
@@ -447,8 +639,26 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
     }, 400);
   };
 
-  // Get active skeleton elements based on pose
-  const skeleton = currentPose?.defaultSkeleton;
+  // Summary modal helpers – derived from real pose data instead of hardcoded
+  // measurement claims.
+  const targetPoseForSummary = currentPose ?? activeTargetPose ?? allPoses[0] ?? null;
+  const sessionScore = lastCapturedSession?.accuracyScore;
+  const formLabel =
+    sessionScore === undefined
+      ? 'No capture yet'
+      : sessionScore >= MASTERY_THRESHOLD
+        ? 'Excellent Form'
+        : sessionScore >= 60
+          ? 'Solid Hold'
+          : 'Needs Work';
+  const angleLabel = (key: string) =>
+    ({
+      armSpread: 'Arm Spread',
+      elbowAngle: 'Elbow Angle',
+      torsoAngle: 'Torso Angle',
+      standingLeg: 'Standing Leg',
+      liftedLeg: 'Lifted Leg'
+    }[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()));
 
   return (
     <div className="fixed inset-0 z-50 bg-black text-white overflow-hidden flex flex-col select-none">
@@ -552,7 +762,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                   <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-[0.2em] px-2 py-1">
                     Select Pose
                   </p>
-                  {allPoses.map((p) => (
+                  {accessiblePoses.map((p) => (
                     <button
                       key={p.id}
                       onClick={() => {
@@ -572,6 +782,12 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                       <span className="text-[10px] opacity-60">{p.difficulty}</span>
                     </button>
                   ))}
+                  {!isVerified && accessiblePoses.length < allPoses.length && (
+                    <p className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2 flex items-center gap-1.5 mt-1">
+                      <Lock className="w-3 h-3 shrink-0" />
+                      <span>Verify to unlock Intermediate & Advanced poses</span>
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -618,6 +834,18 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
             >
               {flashOn ? <Zap className="w-4 h-4" /> : <ZapOff className="w-4 h-4" />}
             </button>
+
+            {/* Native shell: camera was off — retry with the phone's camera. */}
+            {isNative && !useWebcam && (
+              <button
+                onClick={() => setUseWebcam(true)}
+                className="px-3 h-10 rounded-xl bg-white/5 border border-white/10 backdrop-blur-xl flex items-center gap-1.5 text-xs font-bold hover:bg-white/10 transition-all text-violet-300"
+                title="Open the phone camera"
+              >
+                <CameraIcon className="w-4 h-4" />
+                <span>Take Photo</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -721,7 +949,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base text-white tracking-tight">Kinematic Analysis</h3>
-                  <p className="text-xs text-zinc-400 mt-0.5">{(currentPose ?? activeTargetPose ?? allPoses[0])?.name ?? 'Pose Analysis'} • ICU Standards Check</p>
+                  <p className="text-xs text-zinc-400 mt-0.5">{targetPoseForSummary?.name ?? 'Pose Analysis'} • ICU Standards Check</p>
                 </div>
               </div>
               <button
@@ -741,10 +969,16 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                     Form Score
                   </p>
                   <p className="text-3xl font-black text-white font-mono my-1">
-                    {lastCapturedSession?.accuracyScore || accuracy}%
+                    {lastCapturedSession?.accuracyScore ?? '—'}
                   </p>
-                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                    Excellent Hold
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      sessionScore !== undefined && sessionScore >= MASTERY_THRESHOLD
+                        ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                        : 'text-amber-300 bg-amber-500/10 border border-amber-500/20'
+                    }`}
+                  >
+                    {formLabel}
                   </span>
                 </div>
 
@@ -753,10 +987,10 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                     ICU Execution
                   </p>
                   <p className="text-3xl font-black text-indigo-400 font-mono my-1">
-                    {lastCapturedSession?.icuScore || '9.4'} / 10
+                    {lastCapturedSession?.icuScore != null ? `${lastCapturedSession.icuScore} / 10` : 'Not measured'}
                   </p>
                   <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">
-                    Level 4 Benchmark
+                    {sessionScore === undefined ? 'Awaiting Capture' : 'Requires coach review'}
                   </span>
                 </div>
               </div>
@@ -768,34 +1002,34 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                   <span>Joint Angle Calibration</span>
                 </h4>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
-                    <span className="font-semibold text-zinc-200">Standing Leg / Knee Lock</span>
-                    <span className="font-bold text-emerald-400 font-mono flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> 179° (Target: 180°)
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
-                    <span className="font-semibold text-zinc-200">Lifted Leg Hip Height</span>
-                    <span className="font-bold text-rose-400 font-mono flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5" /> 84° (Target: 90°+)
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
-                    <span className="font-semibold text-zinc-200">Arm High V Aperture</span>
-                    <span className="font-bold text-emerald-400 font-mono flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> 45° Locked
-                    </span>
-                  </div>
+                  {lastCapturedSession?.measuredAngles && Object.keys(lastCapturedSession.measuredAngles).length > 0
+                    ? Object.entries(lastCapturedSession.measuredAngles).map(([key, measured]) => (
+                        <div
+                          key={key}
+                          className="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs"
+                        >
+                          <span className="font-semibold text-zinc-200">{angleLabel(key)}</span>
+                          <span className="font-bold text-emerald-400 font-mono flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Measured: {measured}°
+                          </span>
+                        </div>
+                      ))
+                    : (
+                        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
+                          <span className="font-semibold text-zinc-200">No valid angle measurement</span>
+                          <span className="font-bold text-zinc-400 font-mono">Improve framing and try again</span>
+                        </div>
+                      )}
                 </div>
               </div>
 
               {/* Coach Advice */}
               <div className="p-4 rounded-2xl bg-indigo-950/30 border border-indigo-500/20 text-xs">
                 <p className="font-bold text-indigo-300 uppercase tracking-wider mb-1 text-[10px]">
-                  AI Coach Insight:
+                  Coach Cue:
                 </p>
                   <p className="text-zinc-300 leading-relaxed">
-                    {(currentPose ?? activeTargetPose ?? allPoses[0])?.sampleCorrectionMessage ?? 'Maintain core engagement and follow the joint angle standards shown above.'} Focus on core engagement during balance transitions.
+                    {targetPoseForSummary?.sampleCorrectionMessage ?? 'Maintain core engagement and follow the movement cues for this pose.'}
                   </p>
               </div>
             </div>
@@ -828,6 +1062,49 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                 <span>Done & Save</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Access Denied modal — shown when an unverified athlete holds a premium pose */}
+      {accessDenied && (
+        <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0d0d12]/95 text-[#E0E0E6] rounded-3xl w-full max-w-sm p-6 shadow-[0_0_60px_rgba(0,0,0,0.9)] border border-rose-500/25 backdrop-blur-2xl text-center animate-fade-in-up">
+            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-rose-400 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-7 h-7" />
+            </div>
+            <h3 className="text-xl font-black text-white mb-2">Access Denied: Verification Required</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed mb-5">
+              <span className="font-semibold text-zinc-200">{activeTargetPose?.name ?? 'This pose'}</span> is an{' '}
+              {activeTargetPose ? activeTargetPose.difficulty.toLowerCase() : ''} pose. Intermediate and Advanced
+              poses require a verified athlete account.
+            </p>
+            <button
+              onClick={handleCloseAccessDenied}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
+            >
+              Continue with free poses
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pose engine failed to load (missing bundled assets). Blocking, because
+          without the engine the camera shows video but never detects anything. */}
+      {poseEngineError && (
+        <div className="fixed inset-0 z-[80] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#0d0d12]/95 rounded-3xl w-full max-w-sm p-6 border border-amber-500/25 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-400 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-black text-white mb-2">Pose Detection Unavailable</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed mb-5 break-words">{poseEngineError}</p>
+            <button
+              onClick={onClose}
+              className="w-full py-3 rounded-2xl bg-white/5 border border-white/10 text-white font-bold text-xs uppercase tracking-wider active:scale-[0.98] transition-all"
+            >
+              Go back
+            </button>
           </div>
         </div>
       )}

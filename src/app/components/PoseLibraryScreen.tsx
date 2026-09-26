@@ -1,21 +1,26 @@
 import React, { useState } from 'react';
-import { Search, Play, CheckCircle2, Sparkles, Target, Zap } from 'lucide-react';
-import { Pose, PoseCategory, PoseDifficulty } from '../types';
+import { Search, Sparkles, Target, Lock, X } from 'lucide-react';
+import { Pose, PoseCategory, PoseDifficulty, MASTERY_THRESHOLD } from '../types';
+import { PoseList } from './PoseList';
 
 interface PoseLibraryScreenProps {
   poses: Pose[];
+  isVerified: boolean;
   onSelectPose: (pose: Pose) => void;
   onStartPractice: (pose: Pose) => void;
 }
 
 export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
   poses,
+  isVerified,
   onSelectPose,
   onStartPractice
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>('All');
+  // Pose the user tapped that is gated behind verification.
+  const [lockedPose, setLockedPose] = useState<Pose | null>(null);
 
   const categories: (string | PoseCategory)[] = ['All', 'Pom Motion', 'Stunts', 'Jumps'];
   const difficulties: (string | PoseDifficulty)[] = ['All', 'Beginner', 'Intermediate', 'Advanced'];
@@ -32,7 +37,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
 
   // Calculate high-level stats
   const totalPoses = poses.length;
-  const masteredCount = poses.filter((p) => p.masteryPercentage >= 90).length;
+  const masteredCount = poses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length;
   const avgMastery = Math.round(
     poses.reduce((acc, curr) => acc + curr.masteryPercentage, 0) / (totalPoses || 1)
   );
@@ -55,7 +60,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
               Master Every Stunt & Motion
             </h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
-              Calibrated against International Cheer Union angles for sub-degree competition form execution.
+              Landmark-based pose estimates for practice feedback. ICU compliance still requires qualified coach review.
             </p>
           </div>
 
@@ -142,115 +147,42 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredPoses.map((pose) => {
-            const isMastered = pose.masteryPercentage >= 90;
-            return (
-              <div
-                key={pose.id}
-                onClick={() => onSelectPose(pose)}
-                className="group bg-[#0d0d12]/80 hover:bg-[#121218]/90 rounded-3xl border border-white/[0.08] hover:border-indigo-500/40 overflow-hidden flex flex-col cursor-pointer transition-all duration-300 hover:-translate-y-1.5 shadow-[0_4px_30px_rgba(0,0,0,0.6)] hover:shadow-[0_10px_40px_rgba(99,102,241,0.18)] backdrop-blur-xl"
-              >
-                {/* Pose Image with Aspect Ratio */}
-                <div className="relative aspect-[4/3] bg-black/40 overflow-hidden">
-                  <img
-                    src={pose.imageUrl}
-                    alt={pose.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 brightness-95"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0d0d12] via-transparent to-transparent opacity-90" />
+        <PoseList
+          poses={filteredPoses}
+          isVerified={isVerified}
+          onSelectPose={onSelectPose}
+          onStartPractice={onStartPractice}
+          onLockedPoseClick={(pose) => setLockedPose(pose)}
+        />
+      )}
 
-                  {/* Difficulty Tag */}
-                  <div className="absolute top-3 right-3 bg-black/70 border border-white/15 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider text-zinc-200">
-                    {pose.difficulty}
-                  </div>
-
-                  {/* Category Pill on Image */}
-                  <div className="absolute bottom-3 left-3 bg-black/60 border border-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-lg text-[10px] font-semibold text-white tracking-wide">
-                    {pose.category}
-                  </div>
-                </div>
-
-                {/* Card Content & Metadata */}
-                <div className="p-5 flex-1 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-lg text-white group-hover:text-indigo-300 transition-colors">
-                        {pose.name}
-                      </h3>
-                      {isMastered && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Mastered
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed mb-4">
-                      {pose.description}
-                    </p>
-                  </div>
-
-                  {/* Mastery Ring & Action */}
-                  <div className="pt-4 border-t border-white/[0.06] flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      {/* Mini Progress Circle */}
-                      <div className="relative w-9 h-9 flex items-center justify-center">
-                        <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                          <circle
-                            cx="18"
-                            cy="18"
-                            r="14"
-                            fill="none"
-                            className="stroke-white/10"
-                            strokeWidth="3"
-                          />
-                          <circle
-                            cx="18"
-                            cy="18"
-                            r="14"
-                            fill="none"
-                            className={
-                              isMastered
-                                ? 'stroke-emerald-400'
-                                : pose.masteryPercentage > 0
-                                ? 'stroke-indigo-400'
-                                : 'stroke-transparent'
-                            }
-                            strokeWidth="3"
-                            strokeDasharray="88"
-                            strokeDashoffset={88 - (88 * pose.masteryPercentage) / 100}
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                        <span className="absolute text-[10px] font-bold text-white font-mono">
-                          {pose.masteryPercentage}%
-                        </span>
-                      </div>
-                      <span className="text-xs font-medium text-zinc-400">
-                        {pose.masteryPercentage === 100
-                          ? '100% Form'
-                          : pose.masteryPercentage === 0
-                          ? 'Not practiced'
-                          : `${pose.masteryPercentage}% Form`}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onStartPractice(pose);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-white text-black font-bold text-xs flex items-center gap-1.5 hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)]"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>Practice</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      {/* Verification required modal (gated pose tapped while unverified) */}
+      {lockedPose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <div className="relative w-full max-w-sm bg-[#0e0e14] border border-white/10 rounded-3xl p-6 shadow-2xl">
+            <button
+              onClick={() => setLockedPose(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-300 flex items-center justify-center mb-4">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-black text-white mb-2">Verification Required</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed mb-5">
+              <span className="font-semibold text-zinc-200">{lockedPose.name}</span> is an{' '}
+              {lockedPose.difficulty.toLowerCase()} pose. Verify your athlete account to unlock Intermediate and
+              Advanced poses in the gallery and AI camera.
+            </p>
+            <button
+              onClick={() => setLockedPose(null)}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
+            >
+              Got it
+            </button>
+          </div>
         </div>
       )}
     </div>

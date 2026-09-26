@@ -4,6 +4,12 @@
 <dict>
   <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>OptiStance uses the camera to analyze your cheer/fitness poses and score your form in real time.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>OptiStance lets you pick a photo or video of a pose to analyze and score.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>OptiStance saves scored captures to your photo library if you choose to export them.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>

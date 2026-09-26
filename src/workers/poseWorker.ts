@@ -1,6 +1,8 @@
 // Web Worker to run MediaPipe Pose in a worker thread.
 // Main thread should initialize by posting {type: 'init'} and then send frames as ImageBitmap via {type: 'frame', bitmap}.
 
+import { mediapipeLocateFile } from '../app/utils/mediapipeAssets';
+
 let pose: any = null;
 
 self.onmessage = async (evt: MessageEvent) => {
@@ -9,7 +11,8 @@ self.onmessage = async (evt: MessageEvent) => {
     if (data.type === 'init') {
       const { Pose } = await import('@mediapipe/pose');
       pose = new Pose({
-        locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+        // Served from the app bundle, not a CDN, so detection works offline.
+        locateFile: mediapipeLocateFile,
       });
       pose.setOptions({
         modelComplexity: 1,

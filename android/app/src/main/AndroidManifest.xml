@@ -3,6 +3,7 @@
 
     <application
         android:allowBackup="true"
+        android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -38,4 +39,16 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- WebView getUserMedia (live MediaPipe camera feed) requires these to be
+         grantable at runtime. Declared explicitly here so live analysis works
+         even if the @capacitor/camera plugin is removed at some point. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- No RECORD_AUDIO: the app never captures audio. getUserMedia is called
+         with audio:false and no MediaRecorder is used, so declaring it only
+         triggers an unnecessary runtime prompt and requires a Play Store
+         justification. -->
+
+    <!-- Camera is optional hardware: the app works with uploaded media too. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 </manifest>

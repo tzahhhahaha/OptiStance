@@ -12,7 +12,13 @@ import {
   X
 } from 'lucide-react';
 import { UserProfile } from '../types';
-import { supabaseLogin, supabaseSignUp } from '../../services/supabaseApi';
+import {
+  supabaseLogin,
+  supabaseSignUp,
+  supabaseResetPassword
+} from '../../services/supabaseApi';
+import { describeAuthError } from '../utils/authErrors';
+import { useResendVerification } from '../hooks/useResendVerification';
 
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
@@ -23,14 +29,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
   const [resetEmailSent, setResetEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loginNeedsConfirmation, setLoginNeedsConfirmation] = useState(false);
 
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(true);
 
   // Signup Form States
   const [signupName, setSignupName] = useState('');
@@ -38,9 +46,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [signupPassword, setSignupPassword] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
+  // Resend helper reused for the "email not confirmed" login case.
+  const loginResend = useResendVerification(loginEmail);
+
+  const handleResetPassword = async () => {
+    setError(null);
+    if (!resetEmail.trim() || !resetEmail.includes('@')) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    setIsResetting(true);
+    try {
+      await supabaseResetPassword(resetEmail);
+      setResetEmailSent(true);
+    } catch (err) {
+      setError(describeAuthError(err));
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setLoginNeedsConfirmation(false);
 
     if (!loginEmail.trim()) {
       setError('Please enter your email or Athlete ID.');
@@ -64,12 +93,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
         totalSessions: 0,
         totalPracticeMinutes: 0,
         masteredCount: 0,
-        isGuest: false
+        isGuest: false,
+        emailVerified: true,
+        isVerified: authenticatedUser.isVerified === true
       };
 
       onAuthSuccess(loggedUser);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid email or password.');
+      setError(describeAuthError(err));
+      const raw = err instanceof Error ? err.message.toLowerCase() : '';
+      setLoginNeedsConfirmation(raw.includes('not confirmed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -98,8 +131,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
 
     setIsSubmitting(true);
     try {
-      const newAccount = await supabaseSignUp(signupName.trim(), signupEmail.trim(), signupPassword);
+      const { user: newAccount, requiresEmailConfirmation } = await supabaseSignUp(
+        signupName.trim(),
+        signupEmail.trim(),
+        signupPassword
+      );
 
+      // New flow: go straight to the home screen after signing up. If Supabase
+      // still requires email confirmation, no session is issued yet, so the
+      // account enters the app in an unverified state and an optional banner
+      // lets the user verify whenever they choose.
       const newUser: UserProfile = {
         id: newAccount.id,
         name: newAccount.fullName,
@@ -109,12 +150,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
         totalSessions: 0,
         totalPracticeMinutes: 0,
         masteredCount: 0,
-        isGuest: false
+        isGuest: false,
+        emailVerified: !requiresEmailConfirmation,
+        // Newly created accounts are never pre-verified.
+        isVerified: false
       };
 
       onAuthSuccess(newUser);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to create account.');
+      setError(describeAuthError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -204,6 +248,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
             </div>
           )}
 
+          {/* Unconfirmed email: offer a resend without leaving the login form */}
+          {authMode === 'login' && loginNeedsConfirmation && (
+            <div className="mb-4 -mt-1">
+              <button
+                type="button"
+                onClick={() => void loginResend.resend()}
+                disabled={loginResend.isSending}
+                className="w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 text-[11px] font-bold transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {loginResend.isSending ? 'Sending…' : 'Resend confirmation email'}
+              </button>
+              {loginResend.status && <p className="text-[11px] text-emerald-300 mt-2">{loginResend.status}</p>}
+              {loginResend.error && <p className="text-[11px] text-rose-300 mt-2">{loginResend.error}</p>}
+            </div>
+          )}
+
           {/* Login Form */}
           {authMode === 'login' ? (
             <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -260,15 +320,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
               </div>
 
               <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded bg-white/5 border-white/20 text-indigo-600 focus:ring-indigo-500 accent-indigo-600"
-                  />
-                  <span className="text-xs text-zinc-400 font-medium">Keep me signed in</span>
-                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetEmail(loginEmail);
+                    setShowForgotPassword(true);
+                    setError(null);
+                  }}
+                  className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  Forgot password?
+                </button>
               </div>
 
               <button
@@ -404,7 +466,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
                 </div>
                 <h3 className="text-base font-bold text-white mb-1">Reset Link Dispatched</h3>
                 <p className="text-xs text-zinc-400 mb-5 leading-relaxed">
-                  We've sent recovery instructions to your email address.
+                  We&apos;ve sent recovery instructions to your email address.
                 </p>
                 <button
                   onClick={() => {
@@ -424,10 +486,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
                 </p>
                 <input
                   type="email"
-                  defaultValue={loginEmail}
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
                   placeholder="athlete@example.com"
                   className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white placeholder-zinc-500 mb-4"
                 />
+                {error && <p className="text-xs text-rose-400 mb-3">{error}</p>}
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     onClick={() => setShowForgotPassword(false)}
@@ -436,10 +500,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
                     Cancel
                   </button>
                   <button
-                    onClick={() => setResetEmailSent(true)}
-                    className="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30"
+                    onClick={handleResetPassword}
+                    disabled={isResetting}
+                    className="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 disabled:opacity-60"
                   >
-                    Send Link
+                    {isResetting ? 'Sending...' : 'Send Link'}
                   </button>
                 </div>
               </div>

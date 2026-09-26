@@ -1,6 +1,9 @@
 export type PoseCategory = 'Pom Motion' | 'Stunts' | 'Jumps' | 'Tumbling';
 export type PoseDifficulty = 'Beginner' | 'Intermediate' | 'Advanced';
 
+// A pose is considered "mastered" once its mastery percentage reaches this threshold.
+export const MASTERY_THRESHOLD = 80;
+
 export interface PracticeTip {
   text: string;
   type: 'check' | 'warning';
@@ -50,7 +53,8 @@ export interface PracticeSession {
   accuracyScore: number;
   durationSeconds: number;
   corrections: string[];
-  icuScore: number;
+  icuScore?: number;
+  measuredAngles?: Record<string, number>;
   feedbackSummary: string;
 }
 
@@ -75,4 +79,29 @@ export interface UserProfile {
   totalPracticeMinutes: number;
   masteredCount: number;
   isGuest?: boolean;
+  /**
+   * Email verification status. `false` means the account signed up while
+   * Supabase email confirmation is enabled and has not confirmed yet — the user
+   * is in the app and may verify whenever they choose. `true`/undefined means
+   * verified (or a guest).
+   */
+  emailVerified?: boolean;
+  /**
+   * Athlete verification status (is_verified on the profiles/users row).
+   * `true` unlocks Intermediate + Advanced poses in the gallery and camera.
+   * Guests and unverified accounts default to `false`.
+   */
+  isVerified?: boolean;
+  /**
+   * Verification workflow state (verification_status on the users row).
+   *   unverified - never requested; only Beginner poses
+   *   pending    - request submitted, waiting on an admin
+   *   verified   - approved; all poses
+   *   rejected   - declined; the athlete may request again
+   * `isVerified` above is derived from this by the database.
+   */
+  verificationStatus?: VerificationStatus;
 }
+
+/** Workflow state of an athlete's verification request. */
+export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';

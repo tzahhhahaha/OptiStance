@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  is_active BOOLEAN DEFAULT true
+  is_active BOOLEAN DEFAULT true,
+  is_verified BOOLEAN NOT NULL DEFAULT false
 );
 
 -- Athlete profiles (extended user info)
@@ -135,6 +136,10 @@ CREATE TABLE IF NOT EXISTS analytics_snapshots (
 
 -- Row-Level Security (RLS) Policies
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+-- For live verification gating the app subscribes to users UPDATEs; that
+-- requires REPLICA IDENTITY FULL so updated values (e.g. is_verified) are
+-- included in the realtime payload. Applied by supabase/add_verification.sql.
+-- ALTER TABLE users REPLICA IDENTITY FULL;
 ALTER TABLE athlete_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stunts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE practice_sessions ENABLE ROW LEVEL SECURITY;

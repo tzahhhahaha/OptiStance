@@ -1,25 +1,52 @@
-import React, { useState } from 'react';
-import { Settings, Bell, Lock, Database, Zap, Volume2, Save, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, Bell, Database, Zap, Save, RotateCcw } from 'lucide-react';
+import { mediaService } from '../../../services/supabaseService';
+import packageJson from '../../../../package.json';
 
-interface SettingItem {
-  label: string;
-  description: string;
-  type: 'toggle' | 'select' | 'input';
-  value: boolean | string;
-  options?: string[];
-}
+const SETTINGS_KEY = 'optistance_admin_settings';
+
+const DEFAULT_SETTINGS = {
+  emailNotifications: true,
+  debugMode: false,
+  dataBackup: true,
+  maxUploadSize: '500',
+  scoringMode: 'icu',
+  audioFeedback: true,
+};
+
+type AdminSettings = typeof DEFAULT_SETTINGS;
+
+const loadSettings = (): AdminSettings => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+    return stored ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS;
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+};
 
 export default function DarkAdminSettings() {
-  const [settings, setSettings] = useState({
-    emailNotifications: true,
-    debugMode: false,
-    dataBackup: true,
-    maxUploadSize: '500',
-    scoringMode: 'icu',
-    audioFeedback: true,
-  });
-
+  const [settings, setSettings] = useState<AdminSettings>(loadSettings);
   const [saved, setSaved] = useState(false);
+  const [storageUsed, setStorageUsed] = useState<string>('—');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const bytes = await mediaService.getTotalStorageUsage();
+        if (!cancelled) {
+          const mb = bytes / (1024 * 1024);
+          setStorageUsed(mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`);
+        }
+      } catch {
+        if (!cancelled) setStorageUsed('Unavailable');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleToggle = (key: string) => {
     setSettings(prev => ({ ...prev, [key]: !prev[key] }));
@@ -32,8 +59,15 @@ export default function DarkAdminSettings() {
   };
 
   const handleSave = () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const resetSettings = () => {
+    setSettings(DEFAULT_SETTINGS);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(DEFAULT_SETTINGS));
+    setSaved(false);
   };
 
   const settingGroups = [
@@ -153,7 +187,7 @@ export default function DarkAdminSettings() {
 
                       {item.type === 'select' && (
                         <select
-                          value={settings[item.key as keyof typeof settings]}
+                          value={String(settings[item.key as keyof typeof settings])}
                           onChange={(e) => handleChange(item.key, e.target.value)}
                           className="px-3 py-2 rounded-lg bg-white/[0.05] border border-white/[0.08] text-white text-sm font-medium focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                         >
@@ -168,7 +202,7 @@ export default function DarkAdminSettings() {
                       {item.type === 'input' && (
                         <input
                           type="text"
-                          value={settings[item.key as keyof typeof settings]}
+                          value={String(settings[item.key as keyof typeof settings])}
                           onChange={(e) => handleChange(item.key, e.target.value)}
                           className="px-3 py-2 rounded-lg bg-white/[0.05] border border-white/[0.08] text-white text-sm font-medium w-24 focus:outline-none focus:border-indigo-500/50"
                         />
@@ -186,12 +220,15 @@ export default function DarkAdminSettings() {
       <div className="bg-gradient-to-br from-white/[0.05] to-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08]">
         <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">System Information</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[
-            { label: 'API Version', value: '1.2.0' },
-            { label: 'Database', value: 'Supabase PostgreSQL' },
-            { label: 'Last Backup', value: 'Today at 2:30 AM' },
-            { label: 'Storage Used', value: '2.4 GB / 10 GB' },
-          ].map((info, idx) => (
+          {[...[
+            { label: 'App Version', value: packageJson.version || '—' },
+            {
+              label: 'Backend',
+              value: import.meta.env.VITE_SUPABASE_URL ? 'Supabase (configured)' : 'Supabase (not configured)',
+            },
+            { label: 'Connection', value: navigator.onLine ? 'Online' : 'Offline' },
+            { label: 'Storage Used', value: storageUsed },
+          ]].map((info, idx) => (
             <div key={idx} className="bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
               <p className="text-xs text-zinc-500 font-medium mb-1">{info.label}</p>
               <p className="text-sm font-bold text-white">{info.value}</p>
@@ -214,16 +251,7 @@ export default function DarkAdminSettings() {
           {saved ? 'Saved!' : 'Save Settings'}
         </button>
         <button
-          onClick={() => {
-            setSettings({
-              emailNotifications: true,
-              debugMode: false,
-              dataBackup: true,
-              maxUploadSize: '500',
-              scoringMode: 'icu',
-              audioFeedback: true,
-            });
-          }}
+          onClick={resetSettings}
           className="px-6 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-300 hover:text-white font-bold transition-all flex items-center gap-2"
         >
           <RotateCcw className="w-4 h-4" />

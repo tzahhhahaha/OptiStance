@@ -5,12 +5,9 @@ import {
   Share2,
   Calendar,
   Clock,
-  Award,
   CheckCircle2,
   AlertCircle,
   FileText,
-  Filter,
-  Sparkles,
   TrendingUp,
   X
 } from 'lucide-react';
@@ -31,6 +28,23 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
 
   const posesInHistory = Array.from(new Set(sessions.map((s) => s.poseName)));
 
+  // Render an ISO timestamp as a friendly local date/time; fall back to the raw
+  // value for legacy human-readable timestamps.
+  const formatTimestamp = (value: string) => {
+    if (/^\d{4}-\d{2}-\d{2}T/.test(value)) {
+      const date = new Date(value);
+      if (!isNaN(date.getTime())) {
+        return date.toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        });
+      }
+    }
+    return value;
+  };
+
   const filteredSessions = sessions.filter((s) =>
     selectedPoseFilter === 'All' ? true : s.poseName === selectedPoseFilter
   );
@@ -38,6 +52,11 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
   const avgAccuracy = sessions.length
     ? Math.round(sessions.reduce((acc, curr) => acc + curr.accuracyScore, 0) / sessions.length)
     : 0;
+
+  const measuredIcuSessions = sessions.filter((session) => session.icuScore != null);
+  const avgIcuScore = measuredIcuSessions.length
+    ? (measuredIcuSessions.reduce((total, session) => total + (session.icuScore ?? 0), 0) / measuredIcuSessions.length).toFixed(1)
+    : null;
 
   const totalTimeMinutes = Math.round(
     sessions.reduce((acc, curr) => acc + curr.durationSeconds, 0) / 60
@@ -50,7 +69,7 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
       sessions
         .map(
           (s) =>
-            `• ${s.poseName}: ${s.accuracyScore}% Form | ICU Score: ${s.icuScore}/10 | Feedback: ${s.feedbackSummary}`
+            `• ${s.poseName}: ${s.accuracyScore}% Form | ICU Score: ${s.icuScore != null ? `${s.icuScore}/10` : 'Not measured'} | Feedback: ${s.feedbackSummary}`
         )
         .join('\n');
 
@@ -117,9 +136,9 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
 
           <div className="bg-[#0d0d12]/80 p-5 rounded-3xl border border-white/[0.08] shadow-[0_4px_20px_rgba(0,0,0,0.5)] backdrop-blur-xl text-center">
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">ICU Grade</p>
-            <p className="text-2xl md:text-3xl font-black text-emerald-400 font-mono my-1">9.4 / 10</p>
+            <p className="text-2xl md:text-3xl font-black text-emerald-400 font-mono my-1">{avgIcuScore ? `${avgIcuScore} / 10` : 'Not measured'}</p>
             <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-              Level 4 Certified
+              {avgIcuScore ? 'Measured sessions' : 'Requires coach review'}
             </span>
           </div>
         </div>
@@ -189,14 +208,14 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
                     {session.poseName}
                   </h3>
                   <span className="text-[10px] font-bold px-3 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 uppercase tracking-wider font-mono">
-                    ICU: {session.icuScore}/10
+                    ICU: {session.icuScore != null ? `${session.icuScore}/10` : 'Not measured'}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-4 text-xs text-zinc-400">
                   <span className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                    {session.timestamp}
+                    {formatTimestamp(session.timestamp)}
                   </span>
                   <span className="flex items-center gap-1.5 font-mono">
                     <Clock className="w-3.5 h-3.5 text-zinc-500" />
@@ -260,7 +279,7 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
             </div>
 
             <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-              Generate a verified kinematic telemetry dossier calibrated against ICU rulebooks for your cheer coach review.
+              Generate a practice telemetry summary for your cheer coach review. ICU compliance is not certified by this report.
             </p>
 
             <div className="bg-white/[0.03] p-4 rounded-2xl border border-white/[0.08] text-xs font-mono text-zinc-300 max-h-48 overflow-y-auto space-y-1 mb-6">
@@ -268,11 +287,11 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
               <p>Athlete Telemetry Summary</p>
               <p>Total Recorded Reps: {sessions.length}</p>
               <p>Mean Form Compliance: {avgAccuracy}%</p>
-              <p>ICU Passing Rate: 96.8%</p>
+              <p>ICU Passing Rate: {measuredIcuSessions.length ? `${Math.round((measuredIcuSessions.filter((session) => (session.icuScore ?? 0) >= 7).length / measuredIcuSessions.length) * 100)}%` : 'Not measured'}</p>
               <div className="my-2 border-t border-dashed border-white/10" />
               {sessions.map((s, idx) => (
                 <p key={idx}>
-                  #{idx + 1} {s.poseName}: {s.accuracyScore}% Form | ICU Score: {s.icuScore}/10
+                  #{idx + 1} {s.poseName}: {s.accuracyScore}% Form | ICU Score: {s.icuScore != null ? `${s.icuScore}/10` : 'Not measured'}
                 </p>
               ))}
             </div>
@@ -292,7 +311,7 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
                     [
                       `Pose,Accuracy,ICU_Score,Timestamp,Feedback\n` +
                         sessions
-                          .map((s) => `"${s.poseName}",${s.accuracyScore},${s.icuScore},"${s.timestamp}","${s.feedbackSummary}"`)
+                          .map((s) => `"${s.poseName}",${s.accuracyScore},${s.icuScore ?? ''},"${s.timestamp}","${s.feedbackSummary}"`)
                           .join('\n')
                     ],
                     { type: 'text/csv' }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   User,
@@ -17,6 +17,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
+import { supabaseUpdatePassword, supabaseDeactivateAccount } from '../../services/supabaseApi';
 
 interface SettingsScreenProps {
   settings: AppSettings;
@@ -36,21 +37,87 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onBack
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showDpaModal, setShowDpaModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
+  // Change password / delete account form + busy states
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Form states
   const [editName, setEditName] = useState(user?.name || 'Cheer Athlete');
   const [editRole, setEditRole] = useState(user?.role || 'Cheer Athlete');
 
+  // Keep the edit form in sync with the latest profile whenever the modal re-opens.
+  useEffect(() => {
+    if (showEditProfileModal) {
+      setEditName(user?.name || 'Cheer Athlete');
+      setEditRole(user?.role || 'Cheer Athlete');
+    }
+  }, [showEditProfileModal, user?.name, user?.role]);
+
+  // Clear any pending toast timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   const showToast = (msg: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMessage(msg);
-    setTimeout(() => {
+    toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
     }, 2800);
+  };
+
+  const handleUpdatePassword = async () => {
+    if (user?.isGuest) {
+      showToast('Sign in to create an account to change your password');
+      return;
+    }
+    if (!currentPassword || !newPassword) {
+      showToast('Enter both current and new password');
+      return;
+    }
+    if (newPassword.length < 8) {
+      showToast('New password must be at least 8 characters');
+      return;
+    }
+    setIsUpdatingPassword(true);
+    try {
+      await supabaseUpdatePassword(newPassword);
+      setShowPasswordModal(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      showToast('Password updated securely');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Password update failed. Check your current password.');
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      if (!user?.isGuest && user?.id) {
+        await supabaseDeactivateAccount(user.id);
+      }
+      // Clear local app state and return to the auth screen.
+      localStorage.removeItem('optistance_is_authenticated');
+      localStorage.removeItem('optistance_user');
+      if (onLogout) onLogout();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to delete account. Please try again.');
+      setIsDeleting(false);
+    }
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
@@ -419,6 +486,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5">Current Password</label>
                 <input
                   type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
                   placeholder="••••••••"
                   className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
                 />
@@ -427,18 +496,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5">New Password</label>
                 <input
                   type="password"
-                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 8 characters"
                   className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
                 />
               </div>
               <button
-                onClick={() => {
-                  setShowPasswordModal(false);
-                  showToast('Password updated securely');
-                }}
-                className="w-full py-3.5 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 mt-2"
+                onClick={handleUpdatePassword}
+                disabled={isUpdatingPassword}
+                className="w-full py-3.5 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 mt-2 disabled:opacity-60"
               >
-                Update Password
+                {isUpdatingPassword ? 'Updating...' : 'Update Password'}
               </button>
             </div>
           </div>
@@ -466,13 +535,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 Keep Account
               </button>
               <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  showToast('Account data reset to defaults');
-                }}
-                className="flex-1 py-3 rounded-2xl bg-rose-600 text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(225,29,72,0.3)] hover:bg-rose-500"
+                onClick={handleDeleteAccount}
+                disabled={isDeleting}
+                className="flex-1 py-3 rounded-2xl bg-rose-600 text-white text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(225,29,72,0.3)] hover:bg-rose-500 disabled:opacity-60"
               >
-                Confirm Delete
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>

@@ -12,6 +12,7 @@ export interface User {
   created_at: string;
   updated_at: string;
   is_active: boolean;
+  is_verified: boolean;
 }
 
 export interface AthleteProfile {

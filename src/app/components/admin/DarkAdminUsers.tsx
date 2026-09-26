@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Edit, Trash2, Shield, Award, Clock, MoreVertical, CheckCircle, AlertCircle } from 'lucide-react';
-import { supabaseGetUsers, supabaseDeleteUser } from '../../../services/supabaseApi';
+import { Search, Edit, Trash2, Shield, MoreVertical, CheckCircle, AlertCircle, X } from 'lucide-react';
+import { supabaseGetUsers, supabaseDeleteUser, supabaseUpdateUserRole, supabaseSignUp } from '../../../services/supabaseApi';
 
 interface Athlete {
   id: string;
@@ -45,12 +45,68 @@ export default function DarkAdminUsers() {
     try {
       await supabaseDeleteUser(id);
       setAthletes(prev => prev.filter(a => a.id !== id));
+      if (selectedAthlete?.id === id) setSelectedAthlete(null);
     } catch (e) {
       console.error('Failed to delete user:', e);
+      setActionError('Failed to remove athlete. Please try again.');
     }
   };
+
+  const handleRoleChange = async (athlete: Athlete) => {
+    const nextRole: Athlete['role'] = athlete.role === 'admin' ? 'athlete' : 'admin';
+    try {
+      await supabaseUpdateUserRole(athlete.id, nextRole);
+      const updated = { ...athlete, role: nextRole };
+      setAthletes(prev => prev.map(a => (a.id === athlete.id ? updated : a)));
+      setSelectedAthlete(updated);
+    } catch (e) {
+      console.error('Failed to update role:', e);
+      setActionError('Failed to update role. Please try again.');
+    }
+  };
+
+  const handleAddAthlete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !newEmail.trim() || newPassword.length < 8) {
+      setActionError('Provide a name, a valid email, and a password of at least 8 characters.');
+      return;
+    }
+    setIsSaving(true);
+    setActionError(null);
+    try {
+      const { user } = await supabaseSignUp(newName, newEmail, newPassword);
+      setAthletes(prev => [
+        {
+          id: user.id,
+          name: user.fullName,
+          email: user.email,
+          role: 'athlete' as const,
+          sessions: 0,
+          avgAccuracy: 0,
+          status: 'active' as const,
+          joinDate: new Date().toISOString().split('T')[0],
+        },
+        ...prev,
+      ]);
+      setShowAddModal(false);
+      setNewName('');
+      setNewEmail('');
+      setNewPassword('');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to add athlete.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAthlete, setSelectedAthlete] = useState<Athlete | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const filteredAthletes = athletes.filter(
     a => a.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -59,13 +115,19 @@ export default function DarkAdminUsers() {
 
   return (
     <div className="space-y-6">
+      {loading && (
+        <p className="text-sm text-zinc-500 py-8 text-center">Loading athletes…</p>
+      )}
       {/* Header with Search */}
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-2xl font-black text-white tracking-tight">Athlete Management</h3>
           <p className="text-sm text-zinc-400 mt-1">Manage roles, permissions, and view athlete profiles</p>
         </div>
-        <button className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all"
+        >
           + Add Athlete
         </button>
       </div>
@@ -148,13 +210,30 @@ export default function DarkAdminUsers() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="p-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 transition-all">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedAthlete(athlete); }}
+                        className="p-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 transition-all"
+                        title="View athlete"
+                      >
                         <Edit className="w-4 h-4" />
                       </button>
-                      <button className="p-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 transition-all">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Remove ${athlete.name}? Their account will be deactivated.`)) {
+                            void handleDelete(athlete.id);
+                          }
+                        }}
+                        className="p-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 transition-all"
+                        title="Remove athlete"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </button>
-                      <button className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-400 transition-all">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedAthlete(athlete); }}
+                        className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-400 transition-all"
+                        title="More options"
+                      >
                         <MoreVertical className="w-4 h-4" />
                       </button>
                     </div>
@@ -202,17 +281,88 @@ export default function DarkAdminUsers() {
 
               {/* Actions */}
               <div className="flex gap-3 pt-4">
-                <button className="flex-1 py-3 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-300 font-bold transition-all">
-                  View Profile
+                <button
+                  onClick={() => handleRoleChange(selectedAthlete)}
+                  className="flex-1 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-bold transition-all"
+                >
+                  {selectedAthlete.role === 'admin' ? 'Demote to Athlete' : 'Promote to Admin'}
                 </button>
-                <button className="flex-1 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-bold transition-all">
-                  Change Role
-                </button>
-                <button className="flex-1 py-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 font-bold transition-all">
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Remove ${selectedAthlete.name}? Their account will be deactivated.`)) {
+                      void handleDelete(selectedAthlete.id);
+                    }
+                  }}
+                  className="flex-1 py-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 font-bold transition-all"
+                >
                   Remove
                 </button>
+                <button
+                  onClick={() => setSelectedAthlete(null)}
+                  className="flex-1 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-300 font-bold transition-all"
+                >
+                  Close
+                </button>
               </div>
+              {actionError && <p className="text-xs text-rose-400 mt-3">{actionError}</p>}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Athlete Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-[#0d0d12]/95 backdrop-blur-2xl rounded-3xl border border-white/[0.08] w-full max-w-md overflow-hidden shadow-[0_0_60px_rgba(0,0,0,0.9)]">
+            <div className="p-6 border-b border-white/[0.08] flex items-center justify-between">
+              <h3 className="text-lg font-black text-white">Add Athlete</h3>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="w-8 h-8 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] flex items-center justify-center text-zinc-400 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleAddAthlete} className="p-6 space-y-4">
+              <div>
+                <label className="text-xs text-zinc-500 font-bold mb-1.5 block">Full Name</label>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Alex Morgan"
+                  className="w-full px-4 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 font-bold mb-1.5 block">Email</label>
+                <input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="athlete@example.com"
+                  className="w-full px-4 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 font-bold mb-1.5 block">Temporary Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  className="w-full px-4 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50"
+                />
+              </div>
+              {actionError && <p className="text-xs text-rose-400">{actionError}</p>}
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold disabled:opacity-60 transition-all"
+              >
+                {isSaving ? 'Creating...' : 'Create Athlete Account'}
+              </button>
+            </form>
           </div>
         </div>
       )}

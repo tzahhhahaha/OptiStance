@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": ["DOM", "ES2022"],
+    "lib": ["DOM", "ES2022", "WebWorker"],
     "jsx": "react-jsx",
     "moduleResolution": "Bundler",
     "esModuleInterop": true,
@@ -11,7 +11,12 @@
     "allowJs": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

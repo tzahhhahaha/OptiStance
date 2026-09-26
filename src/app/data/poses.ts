@@ -1,4 +1,4 @@
-import { Pose, PracticeSession } from '../types';
+import { Pose } from '../types';
 
 export const INITIAL_POSES: Pose[] = [
   {
@@ -379,52 +379,5 @@ export const INITIAL_POSES: Pose[] = [
       ]
     },
     sampleCorrectionMessage: 'Pull stretch heel closer to the ear while maintaining upright shoulder square.'
-  }
-];
-
-export const INITIAL_SESSIONS: PracticeSession[] = [
-  {
-    id: 'sess-001',
-    poseId: 't-motion',
-    poseName: 'T-Motion',
-    timestamp: 'Today, 4:15 PM',
-    accuracyScore: 98,
-    durationSeconds: 124,
-    corrections: ['Perfect horizontal arm leveling', 'Held continuous 180° alignment'],
-    icuScore: 9.8,
-    feedbackSummary: 'Mastery verified under ICU standard 4.2.'
-  },
-  {
-    id: 'sess-002',
-    poseId: 'liberty',
-    poseName: 'Liberty',
-    timestamp: 'Today, 2:40 PM',
-    accuracyScore: 85,
-    durationSeconds: 180,
-    corrections: ['Lift bent knee 4cm higher', 'Lock standing knee firmly'],
-    icuScore: 8.5,
-    feedbackSummary: 'Solid balance hold; minor knee elevation adjustment needed.'
-  },
-  {
-    id: 'sess-003',
-    poseId: 'toe-touch',
-    poseName: 'Toe Touch',
-    timestamp: 'Yesterday, 6:00 PM',
-    accuracyScore: 72,
-    durationSeconds: 95,
-    corrections: ['Point toes on snap down', 'Keep chest upright at apex'],
-    icuScore: 7.2,
-    feedbackSummary: 'Good explosive jump height, improve hip rotation.'
-  },
-  {
-    id: 'sess-004',
-    poseId: 'arabesque',
-    poseName: 'Arabesque',
-    timestamp: 'Aug 11, 2026',
-    accuracyScore: 90,
-    durationSeconds: 140,
-    corrections: ['Chest posture stable', 'Rear leg elevated 92°'],
-    icuScore: 9.0,
-    feedbackSummary: 'Excellent form and square hip alignment.'
   }
 ];

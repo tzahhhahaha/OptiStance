@@ -14,8 +14,14 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { DarkAdminPage } from './components/DarkAdminPage';
 import { INITIAL_POSES } from './data/poses';
-import { Pose, PracticeSession, AppSettings, UserProfile } from './types';
+import { Pose, PracticeSession, AppSettings, UserProfile, MASTERY_THRESHOLD } from './types';
 import { queuePracticeSession, syncPendingSessions } from '../services/offlineSync';
+import {
+  getVerificationState,
+  resolveStartupAuth,
+  subscribeToVerification,
+  supabaseSignOut
+} from '../services/supabaseApi';
 
 const DEFAULT_USER: UserProfile = {
   name: 'Guest Athlete',
@@ -35,7 +41,7 @@ export default function App() {
 
   // App Startup Lifecycle State: Always show Loading Screen upon opening the app
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [loadingMessage, setLoadingMessage] = useState<string>('Biomechanical Engine');
+  const [loadingMessage] = useState<string>('Biomechanical Engine');
   
   // Authentication State
   const [user, setUser] = useState<UserProfile>(() => {
@@ -105,7 +111,7 @@ export default function App() {
 
   useEffect(() => {
     const sync = () => {
-      if (isAuthenticated && !user.isGuest) {
+      if (isAuthenticated && !user.isGuest && user.emailVerified !== false) {
         void syncPendingSessions();
       }
     };
@@ -113,11 +119,41 @@ export default function App() {
     sync();
     window.addEventListener('online', sync);
     return () => window.removeEventListener('online', sync);
-  }, [isAuthenticated, user.isGuest]);
+  }, [isAuthenticated, user.isGuest, user.emailVerified]);
+
+  // Live verification gating: watch is_verified on the profile row so locked
+  // poses/camera unlock the moment an admin verifies the athlete (and lock
+  // again if it is ever revoked). Also do a one-shot fetch to catch races.
+  useEffect(() => {
+    if (!isAuthenticated || user.isGuest || !user.id) return;
+    let cancelled = false;
+    void getVerificationState().then(({ isVerified, status }) => {
+      if (cancelled) return;
+      setUser((prev) =>
+        prev.id === user.id &&
+        (isVerified !== (prev.isVerified === true) || status !== prev.verificationStatus)
+          ? { ...prev, isVerified, verificationStatus: status }
+          : prev
+      );
+    });
+    const unsubscribe = subscribeToVerification(user.id, (isVerified) => {
+      if (cancelled) return;
+      setUser((prev) => ({
+        ...prev,
+        isVerified,
+        // 'rejected'/'pending' both imply not verified; the derived boolean is
+        // authoritative, so only widen the status when it is actually verified.
+        verificationStatus: isVerified ? 'verified' : prev.verificationStatus,
+      }));
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [isAuthenticated, user.isGuest, user.id]);
 
   // Apply theme class to document body
   useEffect(() => {
-    localStorage.setItem('optistance_settings', JSON.stringify(settings));
     if (settings.darkMode) {
       document.documentElement.classList.add('dark');
       document.documentElement.classList.remove('light');
@@ -131,27 +167,76 @@ export default function App() {
     }
   }, [settings]);
 
-  // Persist auth & user data
+  // Persist all app state to localStorage in a single effect.
   useEffect(() => {
+    localStorage.setItem('optistance_settings', JSON.stringify(settings));
     localStorage.setItem('optistance_auth_user', JSON.stringify(user));
-  }, [user]);
-
-  useEffect(() => {
     localStorage.setItem('optistance_is_authenticated', String(isAuthenticated));
-  }, [isAuthenticated]);
-
-  // Persist poses & sessions
-  useEffect(() => {
     localStorage.setItem('optistance_poses', JSON.stringify(poses));
-  }, [poses]);
-
-  useEffect(() => {
     localStorage.setItem('optistance_sessions', JSON.stringify(sessions));
-  }, [sessions]);
+  }, [settings, user, isAuthenticated, poses, sessions]);
+
+  // Startup auth resolution:
+  //  - If a real Supabase session exists (fresh login, remembered session, or
+  //    the redirect after clicking the email confirmation link), load the
+  //    profile and enter the app so the user lands on the home screen.
+  //  - If localStorage claims an authenticated non-guest user with NO session
+  //    behind it, clear it so nobody is auto-logged-in from stale state.
+  //
+  // Deps are deliberately empty: this resolves the *startup* state exactly
+  // once, reading the initial render's values on purpose. Re-running it when
+  // isAuthenticated or user changes would fight the normal login/logout
+  // handlers below, which own those transitions from that point on.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await resolveStartupAuth({
+        isAuthenticated,
+        userId: user.id,
+        isGuest: user.isGuest,
+        emailVerified: user.emailVerified,
+      });
+      if (cancelled) return;
+
+      if (result.action === 'clear') {
+        localStorage.removeItem('optistance_auth_user');
+        localStorage.removeItem('optistance_is_authenticated');
+        setUser(DEFAULT_USER);
+        setIsAuthenticated(false);
+      } else if (result.action === 'authenticated') {
+        const u = result.user;
+        setUser({
+          id: u.id,
+          name: u.fullName,
+          email: u.email,
+          role: u.role === 'SystemManager' ? 'SystemManager' : 'Cheer Athlete',
+          avatarUrl: '',
+          totalSessions: 0,
+          totalPracticeMinutes: 0,
+          masteredCount: 0,
+          isGuest: false,
+          emailVerified: u.emailVerified !== false,
+          isVerified: u.isVerified === true,
+        });
+        setIsAuthenticated(true);
+        setCurrentTab('library');
+        setSelectedPose(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle Authentication flow
   const handleAuthSuccess = (authenticatedUser: UserProfile) => {
-    sessions.forEach((session) => queuePracticeSession(session, authenticatedUser.id));
+    // Only push sessions to Supabase when the account can actually authenticate
+    // (not a guest, and not an unverified signup with no session yet).
+    const canSync = !authenticatedUser.isGuest && authenticatedUser.emailVerified !== false;
+    if (canSync) {
+      sessions.forEach((session) => queuePracticeSession(session, authenticatedUser.id));
+    }
     setUser(authenticatedUser);
     setIsAuthenticated(true);
     setCurrentTab('library');
@@ -168,7 +253,8 @@ export default function App() {
       totalSessions: 0,
       totalPracticeMinutes: 0,
       masteredCount: 0,
-      isGuest: true
+      isGuest: true,
+      isVerified: false
     };
     setUser(guestUser);
     setIsAuthenticated(true);
@@ -177,46 +263,43 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    // Clear the Supabase session too, otherwise the startup resolver would
+    // silently sign the user back in on the next launch.
+    void supabaseSignOut();
     setIsAuthenticated(false);
     setSelectedPose(null);
     setActiveCameraPose(null);
     setDrawerOpen(false);
     setCurrentTab('library');
-    localStorage.setItem('optistance_is_authenticated', 'false');
   };
 
   // Handle saving a practice session
   const handleSaveSession = (newSession: PracticeSession) => {
     setSessions((prev) => [newSession, ...prev]);
-    queuePracticeSession(newSession, user.isGuest ? undefined : user.id);
-    if (navigator.onLine && !user.isGuest) {
+    const canSync = !user.isGuest && user.emailVerified !== false;
+    queuePracticeSession(newSession, canSync ? user.id : undefined);
+    if (navigator.onLine && canSync) {
       void syncPendingSessions();
     }
+
+    // Update the target pose's mastery score first, then derive the mastered count
+    // from the freshly updated list (avoids reading stale pose data from this render).
+    const nextPoses = poses.map((p) =>
+      p.id === newSession.poseId
+        ? { ...p, masteryPercentage: Math.max(p.masteryPercentage, newSession.accuracyScore) }
+        : p
+    );
+    setPoses(nextPoses);
+
+    const masteredCount = nextPoses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length;
 
     // Update the athlete's total session count and practice minutes
     setUser((prevUser) => ({
       ...prevUser,
       totalSessions: (prevUser.totalSessions || 0) + 1,
       totalPracticeMinutes: (prevUser.totalPracticeMinutes || 0) + Math.round(newSession.durationSeconds / 60),
-      masteredCount: Math.max(
-        prevUser.masteredCount || 0,
-        poses.filter((p) => p.masteryPercentage >= 80 || p.id === newSession.poseId && newSession.accuracyScore >= 80).length
-      )
+      masteredCount: Math.max(prevUser.masteredCount || 0, masteredCount)
     }));
-
-    // Update the pose's mastery score
-    setPoses((prevPoses) =>
-      prevPoses.map((p) => {
-        if (p.id === newSession.poseId) {
-          const updatedMastery = Math.max(p.masteryPercentage, newSession.accuracyScore);
-          return {
-            ...p,
-            masteryPercentage: updatedMastery
-          };
-        }
-        return p;
-      })
-    );
 
     // If viewing this pose detail, update that too
     if (selectedPose && selectedPose.id === newSession.poseId) {
@@ -240,32 +323,15 @@ export default function App() {
     setActiveCameraPose(found);
   };
 
-  const handleSelectTab = (tab: TabType | string | 'admin') => {
-    if (tab === 'admin') {
-      setCurrentTab('admin' as any);
-      setSelectedPose(null);
-      setActiveCameraPose(null);
-    } else if (tab === 'camera') {
-      setCurrentTab(tab as TabType);
-      setActiveCameraPose(null);
-    } else {
-      setSelectedPose(null);
-      setCurrentTab(tab as TabType);
-      setActiveCameraPose(null);
-    }
+  const handleSelectTab = (tab: TabType | 'admin') => {
+    setSelectedPose(null);
+    setActiveCameraPose(null);
+    setCurrentTab(tab);
   };
 
   const handleBackToDrawer = () => {
     setCurrentTab('library');
     setDrawerOpen(true);
-  };
-
-  const handleNavigate = (page: string) => {
-    if (page === 'admin/users' || page === 'admin/thresholds' || page === 'admin') {
-      handleSelectTab('admin');
-    } else {
-      handleSelectTab(page as TabType);
-    }
   };
 
   const isAdminScreen = currentTab === 'admin';
@@ -308,6 +374,7 @@ export default function App() {
         <AICameraScreen
           initialPose={activeCameraPose ?? null}
           allPoses={poses}
+          isVerified={user.isVerified === true}
           audioCuesEnabled={settings.audioCues}
           onClose={() => {
             setActiveCameraPose(null);
@@ -387,13 +454,14 @@ export default function App() {
             onOpenDrawer={() => setDrawerOpen(true)}
             onOpenProfile={() => setCurrentTab('profile')}
             user={user}
-            totalMastered={poses.filter((p) => p.masteryPercentage >= 80).length}
+            totalMastered={poses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length}
           />
 
           <main className="flex-1 pb-24">
             {currentTab === 'library' && (
               <PoseLibraryScreen
                 poses={poses}
+                isVerified={user.isVerified === true}
                 onSelectPose={(pose) => setSelectedPose(pose)}
                 onStartPractice={handleStartPractice}
               />
@@ -413,7 +481,6 @@ export default function App() {
                 sessions={sessions}
                 onUpdateUser={(newVals) => setUser((prev) => ({ ...prev, ...newVals }))}
                 onStartPracticeWithPoseId={handleStartPracticeWithPoseId}
-                onNavigateToSettings={() => setCurrentTab('settings')}
               />
             )}
 

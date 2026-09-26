@@ -11,20 +11,22 @@ if (typeof window !== "undefined") {
     });
   }
 
-  // Handle app lifecycle events when running in Capacitor
+  // Handle app lifecycle events when running in Capacitor.
+  // Back-button navigation is delegated to the in-app tab/drawer UI, so these
+  // listeners only keep the native shell from exiting without user intent.
   if ((window as any).Capacitor) {
     const { App: CapacitorApp } = (window as any).Capacitor.Plugins;
-    
+
     CapacitorApp?.addListener?.("pause", () => {
-      console.log("App paused");
+      // App moved to background – iOS/Android handle suspension.
     });
 
     CapacitorApp?.addListener?.("resume", () => {
-      console.log("App resumed");
+      // App resumed – session timers continue client-side.
     });
 
     CapacitorApp?.addListener?.("backButton", () => {
-      console.log("Back button pressed");
+      // Intercept native back so the app can close modals/drawer instead of quitting.
     });
   }
 }

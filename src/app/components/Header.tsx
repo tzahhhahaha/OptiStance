@@ -70,7 +70,10 @@ export const Header: React.FC<HeaderProps> = ({
             <User className="w-4 h-4" />
           </div>
           <span className="text-xs font-bold text-zinc-300 group-hover:text-white transition-colors hidden sm:inline">
-            Profile
+            {athleteName}
+          </span>
+          <span className="text-[9px] uppercase font-bold tracking-[0.15em] text-zinc-500 group-hover:text-zinc-400 transition-colors hidden lg:inline">
+            {athleteRole}
           </span>
         </button>
       </div>

@@ -10,7 +10,6 @@ import {
   Trophy,
   Heart,
   ShieldCheck,
-  Zap,
   Activity
 } from 'lucide-react';
 import { TabType } from './BottomNavBar';

@@ -204,22 +204,6 @@ export const pomMotionLibrary: PomMotion[] = [
     ],
   },
   {
-    id: '13',
-    name: 'T Motion',
-    category: 'Arm Motions',
-    progress: 0,
-    difficulty: 'Beginner',
-    description: 'The arms form a straight T shape at shoulder height.',
-    cues: ['Open the arms wide', 'Keep the shoulders level', 'Stay centered'],
-    standardHints: ['Arms form a straight horizontal line', 'The body remains tall and balanced'],
-    keyPoints: [
-      { name: 'leftShoulder', target: 'left' },
-      { name: 'rightShoulder', target: 'right' },
-      { name: 'leftWrist', target: 'left' },
-      { name: 'rightWrist', target: 'right' },
-    ],
-  },
-  {
     id: '14',
     name: 'Half T',
     category: 'Arm Motions',
@@ -255,6 +239,46 @@ export const pomMotionLibrary: PomMotion[] = [
 
 export interface LandmarkMap {
   [key: number]: { x: number; y: number; z?: number };
+}
+
+export function calculateJointAngle(
+  first: { x: number; y: number },
+  vertex: { x: number; y: number },
+  last: { x: number; y: number }
+) {
+  const firstVector = { x: first.x - vertex.x, y: first.y - vertex.y };
+  const lastVector = { x: last.x - vertex.x, y: last.y - vertex.y };
+  const dotProduct = firstVector.x * lastVector.x + firstVector.y * lastVector.y;
+  const firstLength = Math.hypot(firstVector.x, firstVector.y);
+  const lastLength = Math.hypot(lastVector.x, lastVector.y);
+
+  if (firstLength === 0 || lastLength === 0) return null;
+
+  const cosine = Math.max(-1, Math.min(1, dotProduct / (firstLength * lastLength)));
+  return Math.round((Math.acos(cosine) * 180) / Math.PI);
+}
+
+export function calculateMeasuredAngles(landmarks: LandmarkMap) {
+  const angleDefinitions = {
+    leftElbow: [11, 13, 15],
+    rightElbow: [12, 14, 16],
+    leftShoulder: [13, 11, 23],
+    rightShoulder: [14, 12, 24],
+    leftKnee: [23, 25, 27],
+    rightKnee: [24, 26, 28],
+  } as const;
+
+  return Object.fromEntries(
+    Object.entries(angleDefinitions).flatMap(([name, [first, vertex, last]]) => {
+      const firstLandmark = landmarks[first];
+      const vertexLandmark = landmarks[vertex];
+      const lastLandmark = landmarks[last];
+      if (!firstLandmark || !vertexLandmark || !lastLandmark) return [];
+
+      const angle = calculateJointAngle(firstLandmark, vertexLandmark, lastLandmark);
+      return angle == null ? [] : [[name, angle]];
+    })
+  ) as Record<string, number>;
 }
 
 function getLandmark(landmarks: LandmarkMap, key: number) {

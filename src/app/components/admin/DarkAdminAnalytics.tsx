@@ -1,13 +1,65 @@
-import React from 'react';
-import { TrendingUp, Users, Activity, Target, Calendar, Download } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, Users, Activity, Target, Calendar, Download, AlertCircle } from 'lucide-react';
+import { analyticsService } from '../../../services/supabaseService';
+
+const UNAVAILABLE_ANALYTICS = [
+  { label: 'Weekly Active Users', value: 'Not measured', change: 'Unavailable', icon: Users, color: 'from-indigo-500 to-indigo-600' },
+  { label: 'Total Sessions', value: 'Not measured', change: 'Unavailable', icon: Activity, color: 'from-emerald-500 to-emerald-600' },
+  { label: 'Avg Accuracy', value: 'Not measured', change: 'Unavailable', icon: Target, color: 'from-amber-500 to-amber-600' },
+  { label: 'Compliance Rate', value: 'Not measured', change: 'Unavailable', icon: TrendingUp, color: 'from-rose-500 to-rose-600' },
+];
+
+const PERIODS = ['Today', 'This Week', 'This Month', 'All Time'] as const;
+type Period = (typeof PERIODS)[number];
 
 export default function DarkAdminAnalytics() {
-  const analyticsData = [
-    { label: 'Weekly Active Users', value: '234', change: '+18%', icon: Users, color: 'from-indigo-500 to-indigo-600' },
-    { label: 'Total Sessions', value: '1,247', change: '+42%', icon: Activity, color: 'from-emerald-500 to-emerald-600' },
-    { label: 'Avg Accuracy', value: '84.2%', change: '+3.8%', icon: Target, color: 'from-amber-500 to-amber-600' },
-    { label: 'Compliance Rate', value: '92.1%', change: '+5.2%', icon: TrendingUp, color: 'from-rose-500 to-rose-600' },
-  ];
+  const [activePeriod, setActivePeriod] = useState<Period>('This Week');
+  const [liveAnalytics, setLiveAnalytics] = useState<any>(null);
+  const [analyticsAvailable, setAnalyticsAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const snapshot = await analyticsService.getLatestAnalytics();
+        if (cancelled) return;
+        setLiveAnalytics(snapshot);
+        // A successful fetch means the backend is configured; a null snapshot
+        // simply means no snapshot has been generated yet.
+        setAnalyticsAvailable(true);
+      } catch {
+        if (cancelled) return;
+        setAnalyticsAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Analytics cards – prefer live backend data, fall back to the display
+  // defaults when the backend is not available.
+  const analyticsData = liveAnalytics
+    ? [
+        { label: 'Weekly Active Users', value: liveAnalytics.active_users == null ? 'Not measured' : String(liveAnalytics.active_users), change: 'Measured', icon: Users, color: 'from-indigo-500 to-indigo-600' },
+        { label: 'Total Sessions', value: liveAnalytics.total_sessions == null ? 'Not measured' : String(liveAnalytics.total_sessions), change: 'Measured', icon: Activity, color: 'from-emerald-500 to-emerald-600' },
+        { label: 'Avg Accuracy', value: liveAnalytics.avg_accuracy == null ? 'Not measured' : `${liveAnalytics.avg_accuracy}%`, change: 'Measured', icon: Target, color: 'from-amber-500 to-amber-600' },
+        { label: 'Compliance Rate', value: liveAnalytics.compliance_rate == null ? 'Not measured' : `${liveAnalytics.compliance_rate}%`, change: 'Measured', icon: TrendingUp, color: 'from-rose-500 to-rose-600' },
+      ]
+    : UNAVAILABLE_ANALYTICS;
+
+  const exportCsv = () => {
+    const header = 'Metric,Value';
+    const rows = analyticsData.map((item) => `${item.label},${item.value}`);
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `optistance-analytics-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
@@ -17,19 +69,37 @@ export default function DarkAdminAnalytics() {
           <h3 className="text-2xl font-black text-white tracking-tight">Performance Analytics</h3>
           <p className="text-sm text-zinc-400 mt-1">Real-time insights and squad performance metrics</p>
         </div>
-        <button className="px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-400 hover:text-white font-bold transition-all flex items-center gap-2">
+        <button
+          onClick={exportCsv}
+          className="px-4 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-400 hover:text-white font-bold transition-all flex items-center gap-2"
+        >
           <Download className="w-4 h-4" />
-          Export
+          Export CSV
         </button>
       </div>
 
+      {/* Live data status */}
+      {analyticsAvailable === false && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold">
+          <AlertCircle className="w-4 h-4" />
+          Live analytics unavailable (Supabase not configured) — no performance figures are shown.
+        </div>
+      )}
+      {analyticsAvailable === true && !liveAnalytics && (
+        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-zinc-400 text-xs font-bold">
+          <Calendar className="w-4 h-4" />
+          No analytics snapshots recorded yet — performance figures are unavailable.
+        </div>
+      )}
+
       {/* Time Period Selector */}
       <div className="flex gap-2">
-        {['Today', 'This Week', 'This Month', 'All Time'].map((period) => (
+        {PERIODS.map((period) => (
           <button
             key={period}
+            onClick={() => setActivePeriod(period)}
             className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-              period === 'This Week'
+              period === activePeriod
                 ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/50'
                 : 'bg-white/[0.05] text-zinc-400 border border-white/[0.08] hover:bg-white/[0.1]'
             }`}
@@ -67,17 +137,9 @@ export default function DarkAdminAnalytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Weekly Trend Chart */}
         <div className="bg-gradient-to-br from-white/[0.05] to-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08]">
-          <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider">Weekly Trend</h4>
+          <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider">Practice Volume — {activePeriod}</h4>
           <div className="h-40 bg-white/[0.02] rounded-xl border border-white/[0.05] flex items-end justify-around px-4 py-4">
-            {[65, 78, 72, 85, 91, 88, 92].map((value, idx) => (
-              <div key={idx} className="flex flex-col items-center gap-2">
-                <div
-                  className="w-8 rounded-t-lg bg-gradient-to-t from-indigo-500 to-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.5)]"
-                  style={{ height: `${value * 1.5}px` }}
-                />
-                <span className="text-xs text-zinc-500">{['M', 'T', 'W', 'T', 'F', 'S', 'S'][idx]}</span>
-              </div>
-            ))}
+            <span className="text-xs text-zinc-500">No recorded practice volume</span>
           </div>
         </div>
 
@@ -85,24 +147,7 @@ export default function DarkAdminAnalytics() {
         <div className="bg-gradient-to-br from-white/[0.05] to-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08]">
           <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider">Top Stunts by Attempts</h4>
           <div className="space-y-3">
-            {[
-              { name: 'Liberty', attempts: 342, color: 'from-rose-500' },
-              { name: 'Scorpion', attempts: 298, color: 'from-indigo-500' },
-              { name: 'High V', attempts: 512, color: 'from-emerald-500' },
-              { name: 'Heel Stretch', attempts: 187, color: 'from-amber-500' },
-            ].map((stunt, idx) => (
-              <div key={idx} className="flex items-center gap-3">
-                <span className="text-xs font-bold text-zinc-500 w-8">{idx + 1}</span>
-                <span className="text-sm font-bold text-white flex-1">{stunt.name}</span>
-                <div className="w-24 h-2 bg-white/[0.1] rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full bg-gradient-to-r ${stunt.color}`}
-                    style={{ width: `${(stunt.attempts / 512) * 100}%` }}
-                  />
-                </div>
-                <span className="text-xs font-bold text-zinc-400 w-10 text-right">{stunt.attempts}</span>
-              </div>
-            ))}
+            <p className="text-xs text-zinc-500">No stunt attempt data available.</p>
           </div>
         </div>
       </div>
@@ -122,34 +167,11 @@ export default function DarkAdminAnalytics() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.05]">
-              {[
-                { name: 'Sarah Johnson', sessions: 24, accuracy: 87, mastered: 8, status: 'Active' },
-                { name: 'Emma Davis', sessions: 18, accuracy: 92, mastered: 6, status: 'Active' },
-                { name: 'Jessica Lee', sessions: 42, accuracy: 95, mastered: 12, status: 'Active' },
-                { name: 'Nicole Chen', sessions: 15, accuracy: 78, mastered: 4, status: 'Active' },
-              ].map((athlete, idx) => (
-                <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                  <td className="px-4 py-3 font-bold text-white">{athlete.name}</td>
-                  <td className="px-4 py-3 text-zinc-400">{athlete.sessions}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-16 h-2 bg-white/[0.1] rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400"
-                          style={{ width: `${athlete.accuracy}%` }}
-                        />
-                      </div>
-                      <span className="text-white font-bold text-xs">{athlete.accuracy}%</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-white font-bold">{athlete.mastered}</td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs font-bold text-emerald-300 bg-emerald-500/20 px-2 py-1 rounded-lg border border-emerald-500/30">
-                      {athlete.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center text-xs text-zinc-500">
+                  No athlete performance data available.
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>

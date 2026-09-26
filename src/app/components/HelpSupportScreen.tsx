@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { TabType } from './BottomNavBar';
+import { supabaseCreateSupportTicket } from '../../services/supabaseApi';
 
 interface HelpSupportScreenProps {
   onBack?: () => void;
@@ -29,6 +30,10 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
   const [expandedFaq, setExpandedFaq] = useState<string | null>('faq-1');
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [supportSent, setSupportSent] = useState(false);
+  const [supportSubject, setSupportSubject] = useState('');
+  const [supportMessage, setSupportMessage] = useState('');
+  const [supportError, setSupportError] = useState<string | null>(null);
+  const [isSendingSupport, setIsSendingSupport] = useState(false);
   const [expandedTutorial, setExpandedTutorial] = useState<number | null>(null);
 
   const faqs: FaqItem[] = [
@@ -68,13 +73,26 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
     setExpandedFaq((prev) => (prev === id ? null : id));
   };
 
-  const handleSendSupport = (e: React.FormEvent) => {
+  const handleSendSupport = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSupportSent(true);
-    setTimeout(() => {
-      setSupportSent(false);
-      setShowSupportModal(false);
-    }, 2000);
+    setSupportError(null);
+    setIsSendingSupport(true);
+    try {
+      await supabaseCreateSupportTicket(supportSubject, supportMessage);
+      setSupportSent(true);
+      setSupportSubject('');
+      setSupportMessage('');
+      setTimeout(() => {
+        setSupportSent(false);
+        setShowSupportModal(false);
+      }, 2000);
+    } catch (err) {
+      // Show the real failure rather than a fake confirmation — a ticket that
+      // was never stored is worse than an error the athlete can act on.
+      setSupportError(err instanceof Error ? err.message : 'Failed to send your ticket.');
+    } finally {
+      setIsSendingSupport(false);
+    }
   };
 
   return (
@@ -253,7 +271,13 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
             Our coaching support desk is ready to assist you with any pose scoring calibrations, technical issues, or routine analysis feedback.
           </p>
           <button
-            onClick={() => setShowSupportModal(true)}
+            onClick={() => {
+              // Clear any previous attempt so a stale error never greets the
+              // athlete when they open the form again.
+              setSupportError(null);
+              setSupportSent(false);
+              setShowSupportModal(true);
+            }}
             className="bg-white text-black text-xs font-extrabold uppercase tracking-wider px-6 py-3 rounded-2xl shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 active:scale-95 transition-all inline-flex items-center gap-2"
           >
             <Headphones className="w-4 h-4" />
@@ -303,6 +327,8 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
                   </label>
                   <input
                     type="text"
+                    value={supportSubject}
+                    onChange={(e) => setSupportSubject(e.target.value)}
                     placeholder="e.g., Liberty Stunt Knee Calibration"
                     className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-xs outline-none focus:border-indigo-400"
                     required
@@ -314,11 +340,16 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
                   </label>
                   <textarea
                     rows={4}
+                    value={supportMessage}
+                    onChange={(e) => setSupportMessage(e.target.value)}
                     placeholder="Describe what you need assistance with..."
                     className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-xs outline-none focus:border-indigo-400 resize-none"
                     required
                   />
                 </div>
+                {supportError && (
+                  <p className="text-xs text-rose-400">{supportError}</p>
+                )}
                 <div className="pt-2 flex justify-end gap-3">
                   <button
                     type="button"
@@ -329,10 +360,11 @@ export const HelpSupportScreen: React.FC<HelpSupportScreenProps> = ({ onBack, on
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-3 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 flex items-center gap-1.5"
+                    disabled={isSendingSupport}
+                    className="px-6 py-3 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 flex items-center gap-1.5 disabled:opacity-60"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Send Ticket</span>
+                    <span>{isSendingSupport ? 'Sending...' : 'Send Ticket'}</span>
                   </button>
                 </div>
               </form>

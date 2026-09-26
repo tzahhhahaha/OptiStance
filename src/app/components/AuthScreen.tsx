@@ -8,7 +8,7 @@ import {
   Lock,
   ArrowRight,
   ShieldCheck,
-  CheckCircle,
+  MailWarning,
   X
 } from 'lucide-react';
 import { UserProfile } from '../types';
@@ -461,13 +461,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
 
             {resetEmailSent ? (
               <div className="text-center py-4">
-                <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-3">
-                  <CheckCircle className="w-6 h-6" />
+                <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-3">
+                  <MailWarning className="w-6 h-6" />
                 </div>
-                <h3 className="text-base font-bold text-white mb-1">Reset Link Dispatched</h3>
-                <p className="text-xs text-zinc-400 mb-5 leading-relaxed">
-                  We&apos;ve sent recovery instructions to your email address.
+                <h3 className="text-base font-bold text-white mb-1">Email Reset Unavailable</h3>
+                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                  This app has no email service configured, so we can&apos;t send you a
+                  reset link. Nothing was emailed to{' '}
+                  <span className="text-zinc-300 font-semibold">{resetEmail.trim()}</span>.
                 </p>
+                <div className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-3.5 mb-4 text-left">
+                  <p className="text-xs font-bold text-white mb-1.5">How to get back in</p>
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    Contact an administrator and ask them to reset your password. They can
+                    do it from the Athletes section of the admin panel in a few seconds.
+                    Verify their identity first — they can set any password.
+                  </p>
+                </div>
                 <button
                   onClick={() => {
                     setShowForgotPassword(false);
@@ -482,7 +492,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
               <div>
                 <h3 className="text-base font-bold text-white mb-1">Reset Athlete Credentials</h3>
                 <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-                  Enter your registered email to receive a password reset link.
+                  Enter your registered email so we can confirm the account exists.
                 </p>
                 <input
                   type="email"

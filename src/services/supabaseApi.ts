@@ -374,6 +374,85 @@ export const reviewVerification = async (
   if (error) throw new Error(error.message);
 };
 
+/**
+ * Set another user's password. Admin-only, enforced server-side.
+ *
+ * This exists because the project has no SMTP host, so Supabase cannot deliver
+ * a password-reset email and the "Forgot password" flow is a dead end. An admin
+ * who has identified an athlete out of band can set a new password here instead.
+ *
+ * The reset is recorded in password_reset_audit. The password itself is never
+ * logged or sent anywhere — treat the value as write-only and hand it to the
+ * athlete through a channel you trust.
+ *
+ * Returns the target account's email so the caller can confirm who was changed.
+ */
+export const adminSetUserPassword = async (
+  userId: string,
+  newPassword: string
+): Promise<string> => {
+  const { data, error } = await supabase.rpc('admin_set_user_password', {
+    p_user_id: userId,
+    p_password: newPassword,
+  });
+  if (error) throw new Error(error.message);
+  return typeof data === 'string' ? data : '';
+};
+
+/**
+ * File a support ticket as the signed-in athlete.
+ *
+ * The user id is resolved from the live auth session rather than passed in, so a
+ * caller cannot file a ticket as somebody else. RLS independently requires
+ * user_id to equal the caller's own id, so a forged value is rejected too.
+ *
+ * Throws when there is no session — a ticket is not stored locally, so it is
+ * better to tell the athlete it failed than to show a success that never was.
+ */
+export const supabaseCreateSupportTicket = async (
+  subject: string,
+  description: string
+): Promise<void> => {
+  const session = await getAuthSessionQuietly();
+  if (!session) {
+    throw new Error('You need to be signed in to send a support ticket.');
+  }
+
+  const cleanSubject = subject.trim();
+  const cleanDescription = description.trim();
+  if (!cleanSubject || !cleanDescription) {
+    throw new Error('Please fill in both a subject and a message.');
+  }
+
+  const { error } = await supabase.from('support_tickets').insert({
+    user_id: session.user.id,
+    subject: cleanSubject,
+    description: cleanDescription,
+  });
+  if (error) throw new Error(error.message);
+};
+
+/**
+ * Recent admin password resets, newest first. Admin-only.
+ */
+export const listPasswordResets = async (): Promise<
+  Array<{ targetEmail: string; actorEmail: string | null; createdAt: string }>
+> => {
+  const { data, error } = await supabase
+    .from('password_reset_audit')
+    .select('target_email, actor_email, created_at')
+    .order('created_at', { ascending: false })
+    .limit(25);
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => ({
+    targetEmail: row.target_email,
+    actorEmail: row.actor_email ?? null,
+    createdAt: row.created_at,
+  }));
+};
+
 /** Sign out of the Supabase session (clears the stored auth token). */
 export const supabaseSignOut = async (): Promise<void> => {
   try {

@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Edit, Trash2, Shield, MoreVertical, CheckCircle, AlertCircle, X } from 'lucide-react';
-import { supabaseGetUsers, supabaseDeleteUser, supabaseUpdateUserRole, supabaseSignUp } from '../../../services/supabaseApi';
+import { Search, Edit, Trash2, Shield, MoreVertical, CheckCircle, AlertCircle, X, KeyRound } from 'lucide-react';
+import {
+  supabaseGetUsers,
+  supabaseDeleteUser,
+  supabaseUpdateUserRole,
+  supabaseSignUp,
+  adminSetUserPassword,
+} from '../../../services/supabaseApi';
 
 interface Athlete {
   id: string;
@@ -65,6 +71,42 @@ export default function DarkAdminUsers() {
     }
   };
 
+  /**
+   * Open the reset form for an athlete. Clears any previous attempt so a failed
+   * password is never left sitting in the field.
+   */
+  const openResetModal = (athlete: Athlete) => {
+    setResetTarget(athlete);
+    setResetPassword('');
+    setActionError(null);
+    setResetNotice(null);
+    setShowResetModal(true);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTarget) return;
+    if (resetPassword.length < 8) {
+      setActionError('Password must be at least 8 characters.');
+      return;
+    }
+    setIsSaving(true);
+    setActionError(null);
+    try {
+      const email = await adminSetUserPassword(resetTarget.id, resetPassword);
+      setShowResetModal(false);
+      setResetPassword('');
+      setResetNotice(
+        `Password reset for ${email}. Give them the new password over a channel you trust — ` +
+        `it is not emailed and cannot be recovered afterwards.`
+      );
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to reset password.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleAddAthlete = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newEmail.trim() || newPassword.length < 8) {
@@ -107,6 +149,10 @@ export default function DarkAdminUsers() {
   const [newPassword, setNewPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetTarget, setResetTarget] = useState<Athlete | null>(null);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
 
   const filteredAthletes = athletes.filter(
     a => a.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -280,10 +326,17 @@ export default function DarkAdminUsers() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 pt-4">
+              <div className="flex flex-wrap gap-3 pt-4">
+                <button
+                  onClick={() => openResetModal(selectedAthlete)}
+                  className="flex-1 min-w-[10rem] py-3 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-300 font-bold transition-all inline-flex items-center justify-center gap-2"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  Reset Password
+                </button>
                 <button
                   onClick={() => handleRoleChange(selectedAthlete)}
-                  className="flex-1 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-bold transition-all"
+                  className="flex-1 min-w-[10rem] py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 font-bold transition-all"
                 >
                   {selectedAthlete.role === 'admin' ? 'Demote to Athlete' : 'Promote to Admin'}
                 </button>
@@ -361,6 +414,72 @@ export default function DarkAdminUsers() {
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold disabled:opacity-60 transition-all"
               >
                 {isSaving ? 'Creating...' : 'Create Athlete Account'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Confirmation notice after a successful reset */}
+      {resetNotice && (
+        <div className="flex items-start gap-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-4">
+          <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-emerald-200 flex-1">{resetNotice}</p>
+          <button
+            onClick={() => setResetNotice(null)}
+            className="text-emerald-400/70 hover:text-emerald-300 transition-colors shrink-0"
+            aria-label="Dismiss"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {showResetModal && resetTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-[#0d0d12]/95 backdrop-blur-2xl rounded-3xl border border-white/[0.08] w-full max-w-md overflow-hidden shadow-[0_0_60px_rgba(0,0,0,0.9)]">
+            <div className="p-6 border-b border-white/[0.08] flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-white">Reset Password</h3>
+                <p className="text-xs text-zinc-500 mt-1">{resetTarget.email}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowResetModal(false);
+                  setResetPassword('');
+                }}
+                className="w-8 h-8 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] flex items-center justify-center text-zinc-400 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={handleResetPassword} className="p-6 space-y-4">
+              <div className="flex items-start gap-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 p-3">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-200/90 leading-relaxed">
+                  No email is sent. Email delivery is not configured on this project, so
+                  you must pass the new password to the athlete yourself. Their previous
+                  password stops working immediately.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 font-bold mb-1.5 block">New Password</label>
+                <input
+                  type="password"
+                  autoFocus
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  className="w-full px-4 py-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white text-sm placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50"
+                />
+              </div>
+              {actionError && <p className="text-xs text-rose-400">{actionError}</p>}
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold disabled:opacity-60 transition-all"
+              >
+                {isSaving ? 'Resetting...' : 'Set New Password'}
               </button>
             </form>
           </div>

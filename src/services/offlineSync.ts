@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseService';
+import { readAccountSyncedIds, writeAccountSyncedIds } from './accountStorage';
 import type { PracticeSession } from '../app/types';
 
 interface PendingSession {
@@ -9,7 +10,6 @@ interface PendingSession {
 }
 
 const PENDING_SESSIONS_KEY = 'optistance_pending_sessions';
-const SYNCED_SESSIONS_KEY = 'optistance_synced_sessions';
 const MAX_ATTEMPTS = 5;
 
 // ------------------------------------------------------------------
@@ -35,32 +35,30 @@ const writePendingSessions = (sessions: PendingSession[]) => {
 // Without this, every login re-queues the full local session history
 // (handleAuthSuccess in App.tsx), forcing duplicate lookups/insert attempts
 // against the database each time. Recording ids here makes sync a one-shot.
+//
+// The registry is scoped per account (see accountStorage). Session ids are
+// generated from a timestamp alone, so two accounts recording within the same
+// millisecond produce the same id. With one global registry, the second account's
+// session would be treated as already uploaded and silently never reach the
+// server.
 
-const readSyncedIds = (): Set<string> => {
-  try {
-    const raw = localStorage.getItem(SYNCED_SESSIONS_KEY);
-    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
-  } catch {
-    return new Set();
-  }
-};
+const readSyncedIds = (userId: string): Set<string> => readAccountSyncedIds(userId);
 
-const writeSyncedIds = (ids: Set<string>) => {
-  localStorage.setItem(SYNCED_SESSIONS_KEY, JSON.stringify([...ids]));
-};
+const writeSyncedIds = (userId: string, ids: Set<string>) => writeAccountSyncedIds(userId, ids);
 
-const markSynced = (id: string) => {
-  const synced = readSyncedIds();
+const markSynced = (userId: string, id: string) => {
+  const synced = readSyncedIds(userId);
   synced.add(id);
-  writeSyncedIds(synced);
+  writeSyncedIds(userId, synced);
 };
 
-/** Whether a local session id is already stored on the server. */
-export const isSessionSynced = (id: string): boolean => readSyncedIds().has(id);
+/** Whether a local session id is already stored on the server for this account. */
+export const isSessionSynced = (id: string, userId: string): boolean =>
+  readSyncedIds(userId).has(id);
 
 export const queuePracticeSession = (session: PracticeSession, userId?: string) => {
   if (!userId) return;
-  if (isSessionSynced(session.id)) return; // already uploaded – do not re-queue
+  if (isSessionSynced(session.id, userId)) return; // already uploaded – do not re-queue
 
   const pending = readPendingSessions();
   if (!pending.some((item) => item.session.id === session.id)) {
@@ -127,7 +125,7 @@ export const syncPendingSessions = async (): Promise<number> => {
     try {
       await uploadPracticeSession(item);
       syncedCount += 1;
-      markSynced(item.session.id);
+      markSynced(item.userId, item.session.id);
     } catch {
       const attempts = (item.attempts || 0) + 1;
       if (attempts >= MAX_ATTEMPTS) {

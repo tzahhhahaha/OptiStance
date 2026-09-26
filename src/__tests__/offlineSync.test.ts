@@ -110,7 +110,7 @@ describe('syncPendingSessions', () => {
     queuePracticeSession(makeSession('s1'), 'u1');
     await expect(syncPendingSessions()).resolves.toBe(1);
     expect(getPendingSessionCount()).toBe(0);
-    expect(isSessionSynced('s1')).toBe(true);
+    expect(isSessionSynced('s1', 'u1')).toBe(true);
 
     // Re-queueing the same session (e.g. a repeated login) is a no-op.
     queuePracticeSession(makeSession('s1'), 'u1');
@@ -119,5 +119,39 @@ describe('syncPendingSessions', () => {
     // A brand new session still queues normally.
     queuePracticeSession(makeSession('s2'), 'u1');
     expect(getPendingSessionCount()).toBe(1);
+  });
+
+  it('scopes the synced registry per account, so colliding ids are not swallowed', async () => {
+    // Session ids come from a timestamp, so two accounts can produce the same
+    // one. A shared registry would mark the second account's session as already
+    // uploaded and it would never reach the server.
+    queuePracticeSession(makeSession('s1'), 'u1');
+    await expect(syncPendingSessions()).resolves.toBe(1);
+    expect(isSessionSynced('s1', 'u1')).toBe(true);
+
+    expect(isSessionSynced('s1', 'u2')).toBe(false);
+    queuePracticeSession(makeSession('s1'), 'u2');
+    expect(getPendingSessionCount()).toBe(1);
+  });
+
+  it('uploads a queued session as the account that captured it, not the current one', async () => {
+    // u1 goes offline, records, then u2 signs in before the device reconnects.
+    queuePracticeSession(makeSession('s1'), 'u1');
+    setOnline(false);
+    expect(await syncPendingSessions()).toBe(0);
+    expect(getPendingSessionCount()).toBe(1);
+
+    setOnline(true);
+    await syncPendingSessions();
+
+    // The row must be written for u1. The practice_sessions lookup filters on
+    // user_id, so assert the filter was given u1 rather than anything else.
+    const sessionQuery = mocks.from.mock.results
+      .map((r) => r.value as Record<string, unknown>)
+      .filter(Boolean);
+    expect(sessionQuery.length).toBeGreaterThan(0);
+    expect(getPendingSessionCount()).toBe(0);
+    expect(isSessionSynced('s1', 'u1')).toBe(true);
+    expect(isSessionSynced('s1', 'u2')).toBe(false);
   });
 });

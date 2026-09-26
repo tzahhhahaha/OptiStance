@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { BottomNavBar, TabType } from './components/BottomNavBar';
 import { NavigationDrawer } from './components/NavigationDrawer';
@@ -20,8 +20,35 @@ import {
   getVerificationState,
   resolveStartupAuth,
   subscribeToVerification,
-  supabaseSignOut
+  supabaseSignOut,
+  fetchServerPracticeSessions,
+  mergePracticeSessions
 } from '../services/supabaseApi';
+import {
+  clearAccountData,
+  migrateLegacyAccountData,
+  readAccountPoses,
+  readAccountSessions,
+  writeAccountPoses,
+  writeAccountSessions
+} from '../services/accountStorage';
+
+/**
+ * The account id from the previously persisted session, used to pick the right
+ * localStorage scope on the very first render — before any effect has run and
+ * before the live Supabase session has been resolved. Returns undefined for a
+ * guest or a first-time visitor, which maps to the guest scope.
+ */
+const storedAccountId = (): string | undefined => {
+  try {
+    const raw = localStorage.getItem('optistance_auth_user');
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<UserProfile> | null;
+    return parsed && !parsed.isGuest && parsed.id ? parsed.id : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 const DEFAULT_USER: UserProfile = {
   name: 'Guest Athlete',
@@ -32,6 +59,22 @@ const DEFAULT_USER: UserProfile = {
   totalPracticeMinutes: 0,
   masteredCount: 0
 };
+
+/**
+ * Profile totals derived from the practice history.
+ *
+ * The profile used to keep its own counters and increment them on save, while
+ * the history lived in a separate list. The two drifted, so the profile could
+ * report zero sessions next to a full history screen. Deriving both numbers from
+ * the one list makes that class of bug unrepresentable.
+ */
+const sessionTotals = (sessions: PracticeSession[]) => ({
+  totalSessions: sessions.length,
+  totalPracticeMinutes: sessions.reduce(
+    (total, session) => total + Math.round((session.durationSeconds || 0) / 60),
+    0
+  )
+});
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<TabType | 'admin'>('library');
@@ -65,29 +108,17 @@ export default function App() {
     return savedAuth !== null ? savedAuth === 'true' : false;
   });
 
-  const [poses, setPoses] = useState<Pose[]>(() => {
-    const saved = localStorage.getItem('optistance_poses');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // fallback
-      }
-    }
-    return INITIAL_POSES;
-  });
+  // Cached practice history and pose mastery belong to an account, not to the
+  // device, so they are read through accountStorage under the current account's
+  // scope. Without this the next person to sign in inherited the previous
+  // account's history.
+  const [poses, setPoses] = useState<Pose[]>(() =>
+    readAccountPoses(storedAccountId())
+  );
 
-  const [sessions, setSessions] = useState<PracticeSession[]>(() => {
-    const saved = localStorage.getItem('optistance_sessions');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {
-        // fallback
-      }
-    }
-    return [];
-  });
+  const [sessions, setSessions] = useState<PracticeSession[]>(() =>
+    readAccountSessions(storedAccountId())
+  );
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('optistance_settings');
@@ -167,14 +198,79 @@ export default function App() {
     }
   }, [settings]);
 
-  // Persist all app state to localStorage in a single effect.
+  // Which account the data currently in `sessions`/`poses` belongs to.
+  //
+  // React renders the new user one commit before the account-change effect has
+  // reloaded the cache, so for that single commit `user` is the incoming account
+  // while `sessions` is still the outgoing account's. The persist effect runs in
+  // that window and would otherwise copy the previous account's history into the
+  // new account's scope. Comparing against this ref makes it skip instead; the
+  // follow-up render, after the reload has set both, persists normally.
+  const loadedAccountRef = useRef<string | null>(storedAccountId() ?? null);
+
+  // Persist app state to localStorage. Settings and the auth marker stay global
+  // (device-level and session-level), while poses and sessions are written under
+  // the current account's scope so they cannot be read by the next account to
+  // sign in on this device.
   useEffect(() => {
+    const accountId = user.isGuest ? null : user.id ?? null;
     localStorage.setItem('optistance_settings', JSON.stringify(settings));
     localStorage.setItem('optistance_auth_user', JSON.stringify(user));
     localStorage.setItem('optistance_is_authenticated', String(isAuthenticated));
-    localStorage.setItem('optistance_poses', JSON.stringify(poses));
-    localStorage.setItem('optistance_sessions', JSON.stringify(sessions));
+
+    if (loadedAccountRef.current !== accountId) return; // reload still pending
+    writeAccountPoses(accountId, poses);
+    writeAccountSessions(accountId, sessions);
   }, [settings, user, isAuthenticated, poses, sessions]);
+
+  // Reload cached data whenever the active account changes, then reconcile with
+  // the server.
+  //
+  // This is the fix for account data bleeding across sign-ins: switching accounts
+  // now swaps the whole local history instead of leaving the previous account's
+  // sessions on screen. The server fetch makes history follow the account, so it
+  // is no longer stranded on the device that recorded it.
+  useEffect(() => {
+    const accountId = user.isGuest ? null : user.id ?? null;
+
+    // Claim the scope before touching storage, so the persist effect's guard sees
+    // a matching pair and the reload below is what gets written.
+    loadedAccountRef.current = accountId;
+
+    // One-time upgrade: data recorded before per-account scoping existed is
+    // attributed to whoever is using the app now, which is the only attribution
+    // the old keys carried.
+    migrateLegacyAccountData(accountId);
+
+    setPoses(readAccountPoses(accountId));
+    const cached = readAccountSessions(accountId);
+    setSessions(cached);
+    setUser((prev) => ({ ...prev, ...sessionTotals(cached) }));
+
+    if (!accountId) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const remote = await fetchServerPracticeSessions(accountId);
+        if (cancelled) return;
+        // Re-read rather than closing over `cached`: a session recorded while the
+        // request was in flight must not be dropped by the merge.
+        const merged = mergePracticeSessions(readAccountSessions(accountId), remote);
+        setSessions(merged);
+        setUser((prev) => ({ ...prev, ...sessionTotals(merged) }));
+      } catch (e) {
+        // Offline or unreachable. The cached history is already on screen, so
+        // there is nothing to recover and nothing to tell the athlete yet.
+        console.warn('Could not load practice history from the server:', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id, user.isGuest]);
 
   // Startup auth resolution:
   //  - If a real Supabase session exists (fresh login, remembered session, or
@@ -231,16 +327,24 @@ export default function App() {
 
   // Handle Authentication flow
   const handleAuthSuccess = (authenticatedUser: UserProfile) => {
-    // Only push sessions to Supabase when the account can actually authenticate
-    // (not a guest, and not an unverified signup with no session yet).
-    const canSync = !authenticatedUser.isGuest && authenticatedUser.emailVerified !== false;
-    if (canSync) {
-      sessions.forEach((session) => queuePracticeSession(session, authenticatedUser.id));
-    }
     setUser(authenticatedUser);
     setIsAuthenticated(true);
     setCurrentTab('library');
     setSelectedPose(null);
+
+    // Re-queue this account's own cached sessions for upload.
+    //
+    // The cache is read from the authenticated account's scope rather than from
+    // whatever happens to be in state. Reading `sessions` here would push the
+    // previous account's (or a guest's) history into the new account's database
+    // record — guest-captured and never-synced sessions are not in the synced
+    // registry, so nothing else would have filtered them out.
+    const canSync = !authenticatedUser.isGuest && authenticatedUser.emailVerified !== false;
+    if (canSync && authenticatedUser.id) {
+      readAccountSessions(authenticatedUser.id).forEach((session) =>
+        queuePracticeSession(session, authenticatedUser.id)
+      );
+    }
   };
 
   const handleContinueAsGuest = () => {
@@ -271,11 +375,21 @@ export default function App() {
     setActiveCameraPose(null);
     setDrawerOpen(false);
     setCurrentTab('library');
+
+    // Drop the account's cached history and pose mastery from the device.
+    //
+    // Without this the previous account's practice history stayed in state and in
+    // localStorage, so whoever signed in next saw it. The account-change effect
+    // reloads from the guest scope, but the signed-out account's copy has no
+    // reason to remain on a device that is now showing the sign-in screen.
+    const accountId = user.isGuest ? null : user.id ?? null;
+    if (accountId) clearAccountData(accountId);
+    setSessions([]);
+    setPoses(INITIAL_POSES);
   };
 
   // Handle saving a practice session
   const handleSaveSession = (newSession: PracticeSession) => {
-    setSessions((prev) => [newSession, ...prev]);
     const canSync = !user.isGuest && user.emailVerified !== false;
     queuePracticeSession(newSession, canSync ? user.id : undefined);
     if (navigator.onLine && canSync) {
@@ -293,11 +407,14 @@ export default function App() {
 
     const masteredCount = nextPoses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length;
 
-    // Update the athlete's total session count and practice minutes
+    // Derive the totals from the session list rather than incrementing a counter
+    // alongside it. Two counters drifting apart is what made the profile claim
+    // zero sessions while the history screen listed a full account.
+    const nextSessions = [newSession, ...sessions];
+    setSessions(nextSessions);
     setUser((prevUser) => ({
       ...prevUser,
-      totalSessions: (prevUser.totalSessions || 0) + 1,
-      totalPracticeMinutes: (prevUser.totalPracticeMinutes || 0) + Math.round(newSession.durationSeconds / 60),
+      ...sessionTotals(nextSessions),
       masteredCount: Math.max(prevUser.masteredCount || 0, masteredCount)
     }));
 

@@ -7,6 +7,7 @@ import {
 } from './supabaseService';
 import type { StuntInsert, SessionWithRelations } from './supabaseService';
 import type { VerificationStatus } from '@/app/types';
+import type { PracticeSession } from '@/app/types';
 import type { Stunt, User as DbUser, UserRole as DbUserRole, AnalyticsSnapshot } from '@/types/supabase';
 
 // ============================================================
@@ -397,6 +398,84 @@ export const adminSetUserPassword = async (
   });
   if (error) throw new Error(error.message);
   return typeof data === 'string' ? data : '';
+};
+
+/**
+ * Read this account's practice history from the server.
+ *
+ * The sync path has always written sessions to practice_sessions, but nothing ever
+ * read them back, so history was stranded on whichever device recorded it. This
+ * makes the table the source of truth, with the local cache as an offline copy.
+ *
+ * Identity across the two copies
+ *   The sync path stamps every row's session_notes with a
+ *   "[local-session:<id>]" marker, which is the only stable link between a local
+ *   PracticeSession and its uploaded row. Rows without the marker get a stable
+ *   id derived from the row uuid, so a merge can never duplicate them.
+ *
+ * RLS scopes this to the caller: practice_sessions only permits reading your own
+ * rows, so passing someone else's id returns nothing rather than their history.
+ */
+export const fetchServerPracticeSessions = async (userId: string): Promise<PracticeSession[]> => {
+  const { data, error } = await supabase
+    .from('practice_sessions')
+    .select('id, session_date, duration_minutes, overall_accuracy, icu_compliance_grade, session_notes, stunts(name)')
+    .eq('user_id', userId)
+    .order('session_date', { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => {
+    const notes: string = row.session_notes ?? '';
+    const marker = notes.match(/\[local-session:([^\]]+)\]/);
+    const stuntName =
+      (Array.isArray(row.stunts) ? row.stunts[0]?.name : (row.stunts as { name?: string } | null)?.name) ??
+      'Unknown Pose';
+
+    return {
+      // Prefer the original local id so the two copies merge into one entry.
+      id: marker ? marker[1] : `srv-${row.id}`,
+      poseId: '',
+      poseName: stuntName,
+      timestamp: row.session_date ?? new Date(0).toISOString(),
+      accuracyScore: Math.round(row.overall_accuracy ?? 0),
+      durationSeconds: Math.max(1, Math.round((row.duration_minutes ?? 1) * 60)),
+      corrections: [],
+      ...(row.icu_compliance_grade == null
+        ? {}
+        : { icuScore: Math.round(row.icu_compliance_grade) }),
+      // The marker is upload bookkeeping, not feedback the athlete should read.
+      feedbackSummary: notes.replace(/\s*\[local-session:[^\]]+\]\s*$/, '').trim(),
+    } satisfies PracticeSession;
+  });
+};
+
+/**
+ * Combine the server's copy of the history with the device cache.
+ *
+ * Local entries win on conflict: the local copy carries detail the table has no
+ * column for (per-joint corrections and measured angles), so preferring the
+ * server row would silently discard it. Server-only entries are added, which is
+ * what makes history follow the account across devices.
+ */
+export const mergePracticeSessions = (
+  local: PracticeSession[],
+  remote: PracticeSession[]
+): PracticeSession[] => {
+  const byId = new Map<string, PracticeSession>();
+  for (const session of remote) byId.set(session.id, session);
+  for (const session of local) byId.set(session.id, session);
+
+  return [...byId.values()].sort((a, b) => {
+    const at = Date.parse(a.timestamp);
+    const bt = Date.parse(b.timestamp);
+    // Unparseable timestamps sort last rather than poisoning the comparator with
+    // NaN, which would make the whole sort order arbitrary.
+    if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
+    if (Number.isNaN(at)) return 1;
+    if (Number.isNaN(bt)) return -1;
+    return bt - at;
+  });
 };
 
 /**

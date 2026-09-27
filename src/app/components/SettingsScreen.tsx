@@ -17,7 +17,7 @@ import {
   X,
   LogOut
 } from 'lucide-react';
-import { AppSettings, UserProfile } from '../types';
+import { AppSettings, EditableProfileFields, UserProfile } from '../types';
 import { supabaseUpdatePassword, supabaseDeactivateAccount } from '../../services/supabaseApi';
 import { PASSWORD_RULE_MESSAGE, meetsPasswordPolicy } from '../utils/passwordPolicy';
 import { setAppLanguage, translate as t } from '../utils/localization';
@@ -57,6 +57,17 @@ interface SettingsScreenProps {
   settings: AppSettings;
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
   user: UserProfile;
+  /**
+   * Save the athlete-owned profile fields.
+   *
+   * Deliberately narrow. A `(Partial<UserProfile>) => void` callback would also
+   * accept `role`, `isVerified` and `email`, which the database and the admin
+   * console own -- an athlete able to write those could promote themselves to
+   * System Manager. `EditableProfileFields` is
+   * `Pick<UserProfile, 'name' | 'specialty'>`, so reaching for a server-owned
+   * field here is a compile error rather than a privilege escalation.
+   */
+  onEditProfile: (edits: EditableProfileFields) => void;
   onLogout?: () => void;
   onBack?: () => void;
 }
@@ -65,6 +76,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   onUpdateSettings,
   user,
+  onEditProfile,
   onLogout,
   onBack
 }) => {
@@ -74,6 +86,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showDpaModal, setShowDpaModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Profile editing.
+  //
+  // This was lost when the role and email inputs were stripped out of the edit
+  // form during the privilege-escalation fix: the whole modal went with them and
+  // the account card was left showing a name the athlete could not change. Only
+  // `name` and `specialty` are athlete-owned, so only those are editable here.
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [editName, setEditName] = useState(user.name || '');
+  const [editSpecialty, setEditSpecialty] = useState(user.specialty || '');
+
+  // Re-seed the form from the live profile each time it opens, so a failed save
+  // or a change made elsewhere does not leave stale text behind.
+  useEffect(() => {
+    if (showEditProfileModal) {
+      setEditName(user.name || '');
+      setEditSpecialty(user.specialty || '');
+    }
+  }, [showEditProfileModal, user.name, user.specialty]);
 
   // OS-level notification permission, read without prompting. Kept separate
   // from `settings.notificationsEnabled`, which is only the athlete's stated
@@ -139,6 +170,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     toastTimerRef.current = setTimeout(() => {
       setToastMessage(null);
     }, 2800);
+  };
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = editName.trim();
+    if (!name) {
+      showToast(t('Your name cannot be empty'));
+      return;
+    }
+
+    // Only the two athlete-owned fields. `role`, `email` and the verification
+    // flags are not accepted by this callback at all -- see the prop docs.
+    onEditProfile({ name, specialty: editSpecialty.trim() });
+
+    setShowEditProfileModal(false);
+    showToast(t('Profile updated'));
   };
 
   const handleUpdatePassword = async () => {
@@ -243,6 +290,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {t('Account Profile')}
             </h2>
             <div className="space-y-2">
+              {/* Edit Profile: name and specialty, the two athlete-owned fields */}
+              <button
+                onClick={() => setShowEditProfileModal(true)}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 active:scale-[0.98] transition-all group text-left border border-transparent hover:border-white/10"
+              >
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:bg-white group-hover:text-black transition-all shrink-0">
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-bold text-white truncate">{t('Account Profile')}</h3>
+                    <p className="text-xs text-zinc-400 truncate">
+                      {user.name}
+                      {user.specialty ? ` · ${user.specialty}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:translate-x-0.5 group-hover:text-white transition-all shrink-0" />
+              </button>
+
               {/* Change Password */}
               <button
                 onClick={() => setShowPasswordModal(true)}
@@ -502,6 +569,99 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </section>
         </div>
       </div>
+
+      {/* Edit Profile Modal */}
+      {showEditProfileModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveProfile}
+            className="bg-[#0d0d12]/95 text-[#E0E0E6] rounded-3xl p-6 md:p-8 w-full max-w-md shadow-[0_0_60px_rgba(0,0,0,0.9)] border border-white/10 backdrop-blur-2xl"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-extrabold text-white">{t('Account Profile')}</h3>
+              <button
+                type="button"
+                onClick={() => setShowEditProfileModal(false)}
+                aria-label={t('Cancel')}
+                className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label
+                  htmlFor="settings-profile-name"
+                  className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5"
+                >
+                  {t('Name')}
+                </label>
+                <input
+                  id="settings-profile-name"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  autoComplete="name"
+                  className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="settings-profile-specialty"
+                  className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5"
+                >
+                  {t('Specialty')}
+                </label>
+                <input
+                  id="settings-profile-specialty"
+                  value={editSpecialty}
+                  onChange={(e) => setEditSpecialty(e.target.value)}
+                  placeholder={t('All Levels')}
+                  className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
+                />
+              </div>
+
+              {/*
+                Email and role are shown read-only rather than omitted, so it is
+                clear they exist and are not editable here, rather than leaving
+                the athlete to wonder where they went. Neither is accepted by
+                `onEditProfile`.
+              */}
+              <div className="pt-2 border-t border-white/[0.08] space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                    {t('Email Address')}
+                  </span>
+                  <span className="text-xs text-zinc-400 truncate">{user.email}</span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                    {t('Role')}
+                  </span>
+                  <span className="text-xs text-zinc-400">{user.role}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditProfileModal(false)}
+                  className="flex-1 py-3.5 rounded-2xl border border-white/10 text-zinc-300 text-xs font-extrabold uppercase tracking-wider hover:bg-white/5 transition-all"
+                >
+                  {t('Cancel')}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3.5 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 transition-all"
+                >
+                  {t('Save')}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Change Password Modal */}
       {showPasswordModal && (

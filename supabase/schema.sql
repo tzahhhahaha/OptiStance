@@ -143,6 +143,12 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE athlete_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stunts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE practice_sessions ENABLE ROW LEVEL SECURITY;
+-- joint_angle_standards was missing from this list, so the SELECT policy below
+-- was inert and the scoring rubric was readable and writable by any role with a
+-- grant -- including `anon`, whose key ships in the app bundle. The matching
+-- admin write policies live in a migration, since they need public.is_admin().
+ALTER TABLE joint_angle_standards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE analytics_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE joint_corrections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ticket_replies ENABLE ROW LEVEL SECURITY;
@@ -152,9 +158,13 @@ ALTER TABLE media_uploads ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile" ON users
   FOR SELECT USING (auth.uid()::text = id::text);
 
--- Users can view all user profiles (for leaderboards, coach views, etc.)
-CREATE POLICY "Users can view all user profiles" ON users
-  FOR SELECT TO authenticated USING (true);
+-- There is deliberately no "view all users" policy for ordinary athletes. An
+-- earlier version of this file had one here, for "leaderboards, coach views,
+-- etc." Postgres ORs permissive policies together, so that single policy let any
+-- signed-in athlete select every row in `users` -- full_name and email for every
+-- account in the system -- and made the admin policy below redundant. No
+-- athlete-facing feature reads other profiles; every self-scoped read in the app
+-- already filters on `.eq('id', ...)`.
 
 -- Admins can view all users
 CREATE POLICY "Admins can view all users" ON users

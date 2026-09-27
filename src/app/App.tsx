@@ -875,6 +875,7 @@ export default function App() {
               settings={settings}
               onUpdateSettings={(newVals) => setSettings((prev) => ({ ...prev, ...newVals }))}
               user={user}
+              onEditProfile={(edits) => setUser((prev) => ({ ...prev, ...edits }))}
               onLogout={handleLogout}
               onBack={handleBackToDrawer}
             />

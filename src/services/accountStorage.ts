@@ -31,6 +31,7 @@ import type { Pose, PracticeSession } from '../app/types';
 const SESSIONS_KEY = 'optistance_sessions';
 const POSES_KEY = 'optistance_poses';
 const SYNCED_KEY = 'optistance_synced_sessions';
+const AUTH_USER_KEY = 'optistance_auth_user';
 
 /** The sentinel scope used when nobody is signed in. */
 const GUEST_SCOPE = 'guest';
@@ -48,6 +49,30 @@ export const accountScope = (userId?: string | null): string =>
  */
 export const scopedKey = (base: string, userId?: string | null): string =>
   `${base}:${accountScope(userId)}`;
+
+/**
+ * Which account the data currently in localStorage belongs to.
+ *
+ * On the first render after an app update this is the only signal available:
+ * effects have not run yet and the live Supabase session has not been resolved.
+ * It reads the previously persisted profile, and returns undefined for a guest
+ * or a first-time visitor so the guest scope is used.
+ *
+ * This is what decides who inherits pre-namespacing data. It resolves to the
+ * account that was signed in on the device when the updated app was last opened,
+ * not to whoever signs in later.
+ */
+export const resolveStoredAccountId = (): string | undefined => {
+  try {
+    const raw = localStorage.getItem(AUTH_USER_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { id?: unknown; isGuest?: unknown } | null;
+    if (!parsed || parsed.isGuest) return undefined;
+    return typeof parsed.id === 'string' && parsed.id.length > 0 ? parsed.id : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 const readJson = <T,>(key: string): T | null => {
   try {

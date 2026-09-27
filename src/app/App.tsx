@@ -29,6 +29,7 @@ import {
   migrateLegacyAccountData,
   readAccountPoses,
   readAccountSessions,
+  resolveStoredAccountId,
   writeAccountPoses,
   writeAccountSessions
 } from '../services/accountStorage';
@@ -36,19 +37,9 @@ import {
 /**
  * The account id from the previously persisted session, used to pick the right
  * localStorage scope on the very first render — before any effect has run and
- * before the live Supabase session has been resolved. Returns undefined for a
- * guest or a first-time visitor, which maps to the guest scope.
+ * before the live Supabase session has been resolved.
  */
-const storedAccountId = (): string | undefined => {
-  try {
-    const raw = localStorage.getItem('optistance_auth_user');
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as Partial<UserProfile> | null;
-    return parsed && !parsed.isGuest && parsed.id ? parsed.id : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const storedAccountId = (): string | undefined => resolveStoredAccountId();
 
 const DEFAULT_USER: UserProfile = {
   name: 'Guest Athlete',

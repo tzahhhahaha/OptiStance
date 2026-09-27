@@ -8,6 +8,7 @@ import {
   readAccountPoses,
   readAccountSessions,
   readAccountSyncedIds,
+  resolveStoredAccountId,
   scopedKey,
   writeAccountPoses,
   writeAccountSessions,
@@ -150,6 +151,73 @@ describe('legacy migration', () => {
     localStorage.setItem('optistance_sessions', '{not json');
     expect(() => migrateLegacyAccountData('u1')).not.toThrow();
     expect(readAccountSessions('u1')).toEqual([]);
+  });
+});
+
+describe('who inherits pre-namespacing data', () => {
+  const setStoredUser = (value: unknown) =>
+    localStorage.setItem('optistance_auth_user', JSON.stringify(value));
+
+  it('resolves to the account that was signed in on the device', () => {
+    setStoredUser({ id: 'u1', email: 'a@example.com', isGuest: false });
+    expect(resolveStoredAccountId()).toBe('u1');
+  });
+
+  it('gives that account the legacy history on first launch', () => {
+    setStoredUser({ id: 'u1', email: 'a@example.com', isGuest: false });
+    localStorage.setItem('optistance_sessions', JSON.stringify([makeSession('legacy-1')]));
+
+    migrateLegacyAccountData(resolveStoredAccountId());
+
+    expect(readAccountSessions('u1').map((s) => s.id)).toEqual(['legacy-1']);
+  });
+
+  it('is a one-time hand-off, not a rule that follows whoever signs in next', () => {
+    setStoredUser({ id: 'u1', email: 'a@example.com', isGuest: false });
+    localStorage.setItem('optistance_sessions', JSON.stringify([makeSession('legacy-1')]));
+    migrateLegacyAccountData(resolveStoredAccountId());
+
+    // A later visitor signs in. The legacy key is already gone, so there is
+    // nothing left to hand over, and the new account starts clean.
+    setStoredUser({ id: 'u2', email: 'b@example.com', isGuest: false });
+    migrateLegacyAccountData(resolveStoredAccountId());
+
+    expect(readAccountSessions('u1').map((s) => s.id)).toEqual(['legacy-1']);
+    expect(readAccountSessions('u2')).toEqual([]);
+  });
+
+  it('does not hand guest-captured history to the next real account', () => {
+    // The device was left on the guest profile, so the legacy data is only
+    // attributable to the guest. Attributing it to whoever signs in next would
+    // be exactly the misattribution this change exists to prevent.
+    setStoredUser({ name: 'Guest Athlete', email: 'guest@optistance.app', isGuest: true });
+    localStorage.setItem('optistance_sessions', JSON.stringify([makeSession('guest-1')]));
+
+    expect(resolveStoredAccountId()).toBeUndefined();
+    migrateLegacyAccountData(resolveStoredAccountId());
+
+    expect(readAccountSessions(undefined).map((s) => s.id)).toEqual(['guest-1']);
+    expect(readAccountSessions('u1')).toEqual([]);
+  });
+
+  it('treats a first-time visitor as the guest scope', () => {
+    expect(resolveStoredAccountId()).toBeUndefined();
+  });
+
+  it('ignores a stored profile with no usable id', () => {
+    setStoredUser({ name: 'No Id', isGuest: false });
+    expect(resolveStoredAccountId()).toBeUndefined();
+  });
+
+  it('survives a corrupt stored profile', () => {
+    localStorage.setItem('optistance_auth_user', '{not json');
+    expect(resolveStoredAccountId()).toBeUndefined();
+  });
+
+  it('always writes new sessions to the currently signed-in account', () => {
+    setStoredUser({ id: 'u1', isGuest: false });
+    writeAccountSessions(resolveStoredAccountId(), [makeSession('new-1')]);
+    expect(readAccountSessions('u1').map((s) => s.id)).toEqual(['new-1']);
   });
 });
 

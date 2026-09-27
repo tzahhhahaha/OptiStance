@@ -62,6 +62,13 @@ export interface AppSettings {
   language: string;
   darkMode: boolean;
   audioCues: boolean;
+  /**
+   * Whether the athlete opted in to local reminders (pending-sync nudges and
+   * mastery milestones). Distinct from `audioCues`, which is the spoken
+   * in-session coaching voice. The OS permission is tracked separately by
+   * `getNotificationPermission()` -- this flag is our half of the answer.
+   */
+  notificationsEnabled: boolean;
   countdownTimer: number; // 0, 3, 5
   showSkeletonOverlay: boolean;
   autoCapture: boolean;
@@ -72,7 +79,20 @@ export interface UserProfile {
   id?: string;
   name: string;
   email: string;
+  /**
+   * System role, owned by the server. NEVER athlete-editable — the admin
+   * console is gated on this value, so a client-writable `role` would let any
+   * athlete reveal (but not use) the admin interface. Use
+   * `displayRoleLabel()` for anything shown to the athlete, and
+   * `isSystemManager()` for gating.
+   */
   role: string;
+  /**
+   * Cheer position the athlete chose for themselves ("Top Flyer", "Tumbler",
+   * ...). Display-only and local, so it is safe to let the athlete edit it.
+   * Falls back to the generic "Cheer Athlete" when blank.
+   */
+  specialty?: string;
   team?: string;
   avatarUrl: string;
   totalSessions: number;
@@ -105,3 +125,12 @@ export interface UserProfile {
 
 /** Workflow state of an athlete's verification request. */
 export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
+
+/**
+ * The only profile fields an athlete is allowed to change themselves.
+ *
+ * Deliberately narrow so that a "save profile" form cannot compile if it starts
+ * writing `role`, `email`, `isVerified` or `id` — those are server-owned. Using
+ * this instead of `Partial<UserProfile>` is what keeps the admin gate honest.
+ */
+export type EditableProfileFields = Pick<UserProfile, 'name' | 'specialty'>;

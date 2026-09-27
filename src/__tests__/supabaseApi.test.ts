@@ -73,7 +73,16 @@ describe('mapProfileRow', () => {
   it('maps an admin row to SystemManager', () => {
     expect(
       mapProfileRow({ id: 'u1', full_name: 'Admin', email: 'a@b.com', role: 'admin', created_at: 't' })
-    ).toEqual({ id: 'u1', fullName: 'Admin', email: 'a@b.com', role: 'SystemManager', createdAt: 't', emailVerified: true, isVerified: false, verificationStatus: 'unverified' });
+    ).toEqual({ id: 'u1', fullName: 'Admin', email: 'a@b.com', role: 'SystemManager', createdAt: 't', emailVerified: true, isVerified: false, verificationStatus: 'unverified', isActive: true });
+  });
+
+  it('carries is_active so a deactivated account is not shown as active', () => {
+    // Deactivating is a soft delete. Without this the admin console renders every
+    // removed athlete as "Active" on the next load.
+    expect(mapProfileRow({ id: 'u1', full_name: 'A', email: 'a@b.com', is_active: false }).isActive).toBe(false);
+    expect(mapProfileRow({ id: 'u1', full_name: 'A', email: 'a@b.com', is_active: true }).isActive).toBe(true);
+    // A missing column (older rows) must not read as deactivated.
+    expect(mapProfileRow({ id: 'u1', full_name: 'A', email: 'a@b.com' }).isActive).toBe(true);
   });
 
   it('reads the is_verified flag', () => {

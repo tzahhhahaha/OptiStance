@@ -1,5 +1,6 @@
 import React from 'react';
 import { BookOpen, Camera, History } from 'lucide-react';
+import { translate as t } from '../utils/localization';
 
 export type TabType = 'library' | 'camera' | 'history' | 'profile' | 'support' | 'settings' | 'about';
 
@@ -20,12 +21,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentTab, onSelect
               ? 'text-white'
               : 'text-zinc-500 hover:text-zinc-300'
           }`}
-          aria-label="Pose Library"
+          aria-label={t('Pose Library')}
         >
           <div className={`p-1.5 rounded-xl transition-all ${currentTab === 'library' ? 'bg-white/10 text-white shadow-inner' : 'group-hover:bg-white/5'}`}>
             <BookOpen className="w-5 h-5" strokeWidth={currentTab === 'library' ? 2.5 : 1.8} />
           </div>
-          <span className="text-[11px] font-semibold tracking-wide">Library</span>
+          <span className="text-[11px] font-semibold tracking-wide">{t('Library')}</span>
           {currentTab === 'library' && (
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_10px_#818cf8] absolute -bottom-1" />
           )}
@@ -35,7 +36,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentTab, onSelect
         <button
           onClick={() => onSelectTab('camera')}
           className="relative -top-5 group flex flex-col items-center focus:outline-none"
-          aria-label="Start AI Scan"
+          aria-label={t('Start AI Scan')}
         >
             <div className="relative p-1">
               {/* Glow ring */}
@@ -45,7 +46,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentTab, onSelect
               </div>
             </div>
           <span className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-[0.2em] mt-0.5 group-hover:text-white transition-colors">
-            AI Scan
+            {t('AI Scan')}
           </span>
         </button>
 
@@ -57,12 +58,12 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({ currentTab, onSelect
               ? 'text-white'
               : 'text-zinc-500 hover:text-zinc-300'
           }`}
-          aria-label="Session History"
+          aria-label={t('Session History')}
         >
           <div className={`p-1.5 rounded-xl transition-all ${currentTab === 'history' ? 'bg-white/10 text-white shadow-inner' : 'group-hover:bg-white/5'}`}>
             <History className="w-5 h-5" strokeWidth={currentTab === 'history' ? 2.5 : 1.8} />
           </div>
-          <span className="text-[11px] font-semibold tracking-wide">History</span>
+          <span className="text-[11px] font-semibold tracking-wide">{t('History')}</span>
           {currentTab === 'history' && (
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_10px_#818cf8] absolute -bottom-1" />
           )}

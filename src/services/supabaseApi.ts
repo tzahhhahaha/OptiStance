@@ -28,6 +28,13 @@ export interface User {
   isVerified: boolean;
   /** Workflow state of the verification request (see VerificationStatus). */
   verificationStatus?: VerificationStatus;
+  /**
+   * Whether the account is still active. Deactivating is a soft delete
+   * (`is_active = false`), so this is the only way to tell a removed athlete
+   * from an active one — it must be carried through, or every row in the admin
+   * console reads as "Active".
+   */
+  isActive: boolean;
 }
 
 /** Map a `users` table row to the app's auth User shape. */
@@ -39,6 +46,7 @@ export const mapProfileRow = (row: {
   created_at?: string | null;
   is_verified?: boolean | null;
   verification_status?: VerificationStatus | null;
+  is_active?: boolean | null;
 }): User => ({
   id: row.id,
   fullName: row.full_name,
@@ -48,6 +56,9 @@ export const mapProfileRow = (row: {
   emailVerified: true,
   isVerified: Boolean(row.is_verified),
   verificationStatus: row.verification_status ?? (row.is_verified ? 'verified' : 'unverified'),
+  // Absent column (older rows) is treated as active; only an explicit false
+  // marks a deactivated account.
+  isActive: row.is_active !== false,
 });
 
 // ============================================================
@@ -181,6 +192,7 @@ export const supabaseSignUp = async (
         emailVerified: !requiresEmailConfirmation,
         // New accounts start unverified until an admin flips is_verified.
         isVerified: false,
+        isActive: true,
       },
       requiresEmailConfirmation,
     };

@@ -1,6 +1,7 @@
 import React from 'react';
 import { CheckCircle2, Lock, Play } from 'lucide-react';
 import { Pose, MASTERY_THRESHOLD } from '../types';
+import { translate as t } from '../utils/localization';
 
 interface PoseCardProps {
   pose: Pose;
@@ -78,7 +79,7 @@ export const PoseCard: React.FC<PoseCardProps> = ({
             {isMastered && (
               <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Mastered
+                {t('Mastered')}
               </span>
             )}
           </div>
@@ -125,17 +126,17 @@ export const PoseCard: React.FC<PoseCardProps> = ({
             </div>
             <span className="text-xs font-medium text-zinc-400">
               {pose.masteryPercentage === 100
-                ? '100% Form'
+                ? t('100% Form')
                 : pose.masteryPercentage === 0
-                ? 'Not practiced'
-                : `${pose.masteryPercentage}% Form`}
+                ? t('Not practiced')
+                : `${pose.masteryPercentage}% ${t('Form')}`}
             </span>
           </div>
 
           {isLocked ? (
             <span className="px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5" />
-              <span>Locked</span>
+              <span>{t('Locked')}</span>
             </span>
           ) : (
             <button
@@ -146,7 +147,7 @@ export const PoseCard: React.FC<PoseCardProps> = ({
               className="px-4 py-2 rounded-xl bg-white text-black font-bold text-xs flex items-center gap-1.5 hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)]"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Practice</span>
+              <span>{t('Practice')}</span>
             </button>
           )}
         </div>
@@ -160,9 +161,9 @@ export const PoseCard: React.FC<PoseCardProps> = ({
             <Lock className="w-6 h-6 text-amber-300" />
           </div>
           <span className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-white">
-            Verify to Unlock
+            {t('Verify to Unlock')}
           </span>
-          <span className="text-[10px] text-zinc-300/80 font-medium">Intermediate & Advanced poses</span>
+          <span className="text-[10px] text-zinc-300/80 font-medium">{t('Intermediate & Advanced poses')}</span>
         </div>
       )}
     </div>

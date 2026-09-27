@@ -40,6 +40,13 @@ export interface Stunt {
   common_mistakes?: string;
   reference_image_url?: string;
   reference_video_url?: string;
+  /**
+   * Slug of the bundled pose this stunt corresponds to (e.g. 't-motion'), or
+   * null when the stunt is curriculum-only and has no library pose. The pose
+   * library is static app data keyed by slug while stunts are keyed by UUID, so
+   * this is the join between the admin console and the athlete-facing library.
+   */
+  pose_key?: string | null;
   target_points: number;
   mastery_threshold: number;
   is_archived: boolean;

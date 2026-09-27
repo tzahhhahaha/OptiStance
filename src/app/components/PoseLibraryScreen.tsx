@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, Sparkles, Target, Lock, X } from 'lucide-react';
 import { Pose, PoseCategory, PoseDifficulty, MASTERY_THRESHOLD } from '../types';
 import { PoseList } from './PoseList';
+import { translate as t } from '../utils/localization';
 
 interface PoseLibraryScreenProps {
   poses: Pose[];
@@ -57,7 +58,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
               <span>ICU Kinematic Engine</span>
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white mb-2">
-              Master Every Stunt & Motion
+              {t('Master Every Stunt & Motion')}
             </h2>
             <p className="text-zinc-400 text-sm leading-relaxed">
               Landmark-based pose estimates for practice feedback. ICU compliance still requires qualified coach review.
@@ -68,15 +69,15 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
           <div className="grid grid-cols-3 gap-3 bg-white/[0.03] border border-white/10 backdrop-blur-xl p-4 rounded-2xl">
             <div className="text-center px-2">
               <p className="text-xl md:text-2xl font-black text-white font-mono">{totalPoses}</p>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold mt-0.5">Total Poses</p>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold mt-0.5">{t('Total Poses')}</p>
             </div>
             <div className="text-center px-2 border-x border-white/10">
               <p className="text-xl md:text-2xl font-black text-emerald-400 font-mono">{masteredCount}</p>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold mt-0.5">Mastered</p>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold mt-0.5">{t('Mastered')}</p>
             </div>
             <div className="text-center px-2">
               <p className="text-xl md:text-2xl font-black text-indigo-300 font-mono">{avgMastery}%</p>
-              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold mt-0.5">Avg Form</p>
+              <p className="text-[9px] text-zinc-500 uppercase tracking-widest font-semibold mt-0.5">{t('Avg Form')}</p>
             </div>
           </div>
         </div>
@@ -91,7 +92,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search poses (e.g., T-Motion, High V, Liberty, Half-T)..."
+            placeholder={t('Search poses (e.g., T-Motion, High V, Liberty, Half-T)...')}
             className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-[#0f0f13]/80 border border-white/10 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/40 text-sm text-white placeholder:text-zinc-600 backdrop-blur-xl shadow-inner transition-all"
           />
         </div>
@@ -99,7 +100,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
           <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] shrink-0 mr-1">
-            Category:
+            {t('Category')}:
           </span>
           {categories.map((cat) => (
             <button
@@ -111,7 +112,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
                   : 'bg-white/5 border border-white/10 text-zinc-400 hover:text-white hover:bg-white/10'
               }`}
             >
-              {cat}
+              {t(cat)}
             </button>
           ))}
         </div>
@@ -119,7 +120,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
         {/* Difficulty Filter */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] shrink-0 mr-1">
-            Level:
+            {t('Level')}:
           </span>
           {difficulties.map((diff) => (
             <button
@@ -131,7 +132,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
                   : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
               }`}
             >
-              {diff}
+              {t(diff)}
             </button>
           ))}
         </div>
@@ -141,9 +142,9 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
       {filteredPoses.length === 0 ? (
         <div className="text-center py-16 bg-[#0f0f13]/80 border border-white/10 rounded-3xl p-8 backdrop-blur-xl">
           <Target className="w-12 h-12 text-zinc-600 mx-auto mb-3" />
-          <h3 className="font-bold text-lg text-white mb-1">No poses found</h3>
+          <h3 className="font-bold text-lg text-white mb-1">{t('No poses found')}</h3>
           <p className="text-sm text-zinc-500">
-            Try adjusting your search query or filters.
+            {t('Try adjusting your search query or filters.')}
           </p>
         </div>
       ) : (
@@ -170,7 +171,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-300 flex items-center justify-center mb-4">
               <Lock className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-black text-white mb-2">Verification Required</h3>
+            <h3 className="text-lg font-black text-white mb-2">{t('Verification Required')}</h3>
             <p className="text-xs text-zinc-400 leading-relaxed mb-5">
               <span className="font-semibold text-zinc-200">{lockedPose.name}</span> is an{' '}
               {lockedPose.difficulty.toLowerCase()} pose. Verify your athlete account to unlock Intermediate and
@@ -180,7 +181,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
               onClick={() => setLockedPose(null)}
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
             >
-              Got it
+              {t('Got it')}
             </button>
           </div>
         </div>

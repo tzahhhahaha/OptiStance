@@ -17,15 +17,22 @@ import {
   Mail,
   Send
 } from 'lucide-react';
-import { UserProfile, Pose, PracticeSession, MASTERY_THRESHOLD } from '../types';
+import { UserProfile, Pose, PracticeSession, MASTERY_THRESHOLD, EditableProfileFields } from '../types';
 import { useResendVerification } from '../hooks/useResendVerification';
 import { useAthleteVerification } from '../hooks/useAthleteVerification';
+import { displayRoleLabel } from '../utils/profile';
 
 interface ProfileScreenProps {
   user: UserProfile;
   poses: Pose[];
   sessions: PracticeSession[];
+  /**
+   * Writes server-owned fields (verification status, back from the server after
+   * a request). Never route a user-typed form through this.
+   */
   onUpdateUser: (newUser: Partial<UserProfile>) => void;
+  /** Writes the only fields an athlete may change: their name and specialty. */
+  onEditProfile: (edits: EditableProfileFields) => void;
   onStartPracticeWithPoseId: (poseId: string) => void;
 }
 
@@ -43,11 +50,17 @@ interface Achievement {
   xpReward: number;
 }
 
+/** Consecutive clean attempts on one pose needed for Zero-Wobble Core. */
+const CLEAN_RUN_TARGET = 10;
+/** Fully scored routines needed for ICU Protocol Guardian. */
+const SCORED_ROUTINE_TARGET = 10;
+
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   user,
   poses,
   sessions,
   onUpdateUser,
+  onEditProfile,
   onStartPracticeWithPoseId
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'achievements'>('overview');
@@ -72,19 +85,18 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     request: requestAthleteVerification
   } = useAthleteVerification(user, onUpdateUser);
 
-  // Edit profile form state
+  // Edit profile form state. Name + specialty are athlete-owned; email and the
+  // system role are shown read-only further down because the database owns them.
   const [editName, setEditName] = useState(user.name || '');
-  const [editRole, setEditRole] = useState(user.role || 'Cheer Athlete');
-  const [editEmail, setEditEmail] = useState(user.email || '');
+  const [editSpecialty, setEditSpecialty] = useState(user.specialty || '');
 
   // Keep the edit form in sync with the latest profile whenever the modal re-opens.
   useEffect(() => {
     if (showEditModal) {
       setEditName(user.name || '');
-      setEditRole(user.role || 'Cheer Athlete');
-      setEditEmail(user.email || '');
+      setEditSpecialty(user.specialty || '');
     }
-  }, [showEditModal, user.name, user.role, user.email]);
+  }, [showEditModal, user.name, user.specialty]);
 
   // Clear any pending toast timer on unmount.
   useEffect(() => {
@@ -101,20 +113,22 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editName.trim()) return;
+    const name = editName.trim();
+    if (!name) {
+      showToast('Your name cannot be empty');
+      return;
+    }
 
-    onUpdateUser({
-      name: editName.trim(),
-      role: editRole.trim(),
-      email: editEmail.trim()
-    });
+    onEditProfile({ name, specialty: editSpecialty.trim() });
 
     setShowEditModal(false);
-    showToast('Athlete profile updated successfully!');
+    showToast('Profile updated');
   };
 
   // Telemetry & Progress Calculations
   const totalMastered = poses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length;
+  // Never 0, so achievement progress bars can't divide by zero on an empty library.
+  const librarySize = Math.max(poses.length, 1);
   const avgAccuracy =
     sessions.length > 0
       ? Math.round(sessions.reduce((acc, s) => acc + s.accuracyScore, 0) / sessions.length)
@@ -160,6 +174,36 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     return streak;
   })();
 
+  // Longest run of back-to-back sessions on a single pose that all cleared the
+  // mastery threshold. "Steadiness" rather than peak score, which is what
+  // separates Zero-Wobble Core from ICU Precision Master.
+  const longestCleanRun = (() => {
+    const byPose = new Map<string, number[]>();
+    for (const session of [...sessions].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    )) {
+      const scores = byPose.get(session.poseId) ?? [];
+      scores.push(session.accuracyScore);
+      byPose.set(session.poseId, scores);
+    }
+
+    let best = 0;
+    for (const scores of byPose.values()) {
+      let run = 0;
+      for (const score of scores) {
+        run = score >= MASTERY_THRESHOLD ? run + 1 : 0;
+        best = Math.max(best, run);
+      }
+    }
+    return best;
+  })();
+
+  // A routine counts as fully scored when a pose matched and joint angles were
+  // captured — the closest thing the app records to "met the angle standards".
+  const fullyScoredRoutines = sessions.filter(
+    (s) => s.accuracyScore >= 60 && Object.keys(s.measuredAngles ?? {}).length > 0
+  ).length;
+
   // Achievements Definition with dynamic progress
   const achievements: Achievement[] = [
     {
@@ -183,7 +227,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       tier: 'gold',
       icon: '🎯',
       unlocked: (poses.find((p) => p.id === 'liberty')?.masteryPercentage || 0) >= MASTERY_THRESHOLD,
-      unlockedDate: 'Unlocked',
+      unlockedDate: (poses.find((p) => p.id === 'liberty')?.masteryPercentage || 0) >= MASTERY_THRESHOLD
+        ? 'Unlocked'
+        : undefined,
       progress: poses.find((p) => p.id === 'liberty')?.masteryPercentage || 0,
       maxProgress: 85,
       xpReward: 400
@@ -204,13 +250,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     {
       id: 'stability_star',
       title: 'Zero-Wobble Core',
-      description: 'Maintain steady stunt balance without red-zone joint drift',
+      description: `Land ${CLEAN_RUN_TARGET} attempts in a row on one pose at ${MASTERY_THRESHOLD}%+`,
       category: 'precision',
       tier: 'diamond',
       icon: '⚡',
-      unlocked: false,
-      progress: 0,
-      maxProgress: 10,
+      unlocked: longestCleanRun >= CLEAN_RUN_TARGET,
+      unlockedDate: longestCleanRun >= CLEAN_RUN_TARGET ? 'Unlocked' : undefined,
+      progress: Math.min(longestCleanRun, CLEAN_RUN_TARGET),
+      maxProgress: CLEAN_RUN_TARGET,
       xpReward: 600
     },
     {
@@ -229,13 +276,17 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     {
       id: 'grand_champion',
       title: 'Grand Stunt Champion',
-      description: 'Master all 8 stunt poses in the OptiStance syllabus',
+      // Driven by the real library size. This used to be hardcoded to 8 while
+      // the library only ships 7 poses, so the badge could never unlock and the
+      // progress bar was stuck at 87%.
+      description: `Master all ${librarySize} poses in the OptiStance syllabus`,
       category: 'mastery',
       tier: 'diamond',
       icon: '🌟',
-      unlocked: totalMastered >= 8,
-      progress: totalMastered,
-      maxProgress: 8,
+      unlocked: librarySize > 0 && totalMastered >= librarySize,
+      unlockedDate: librarySize > 0 && totalMastered >= librarySize ? 'Unlocked' : undefined,
+      progress: Math.min(totalMastered, librarySize),
+      maxProgress: librarySize,
       xpReward: 1000
     },
     {
@@ -254,13 +305,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     {
       id: 'safety_first',
       title: 'ICU Protocol Guardian',
-      description: 'Execute 10 stunt routines meeting full ICU angle standards',
+      description: `Complete ${SCORED_ROUTINE_TARGET} fully scored routines with joint angles captured`,
       category: 'precision',
       tier: 'bronze',
       icon: '🛡️',
-      unlocked: false,
-      progress: 0,
-      maxProgress: 10,
+      unlocked: fullyScoredRoutines >= SCORED_ROUTINE_TARGET,
+      unlockedDate: fullyScoredRoutines >= SCORED_ROUTINE_TARGET ? 'Unlocked' : undefined,
+      progress: Math.min(fullyScoredRoutines, SCORED_ROUTINE_TARGET),
+      maxProgress: SCORED_ROUTINE_TARGET,
       xpReward: 250
     }
   ];
@@ -283,7 +335,11 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     <div className="px-4 md:px-8 py-6 max-w-6xl mx-auto space-y-8 animate-fade-in text-[#E0E0E6]">
       {/* Toast Feedback */}
       {toastMessage && (
-        <div className="fixed top-20 right-6 z-50 bg-emerald-500/90 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl backdrop-blur-md flex items-center gap-2 animate-bounce">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-20 right-6 z-50 bg-emerald-500/90 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl backdrop-blur-md flex items-center gap-2 animate-fade-in"
+        >
           <CheckCircle2 className="w-4 h-4" />
           <span>{toastMessage}</span>
         </div>
@@ -315,7 +371,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   {user.name || 'Alex Morgan'}
                 </h1>
                 <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300">
-                  {user.role || 'Cheer Athlete'}
+                  {displayRoleLabel(user)}
                 </span>
               </div>
 
@@ -897,18 +953,22 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </button>
 
             <div className="mb-5">
-              <h3 className="text-lg font-black text-white">Edit Athlete Profile</h3>
+              <h3 className="text-lg font-black text-white">Edit Profile</h3>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Update your display name, specialty role, and email address.
+                Update how your name and cheer position appear in the app.
               </p>
             </div>
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
+                <label
+                  htmlFor="profile-edit-name"
+                  className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5"
+                >
                   Full Name
                 </label>
                 <input
+                  id="profile-edit-name"
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -918,30 +978,47 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </div>
 
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  Cheer Specialty / Role
+                <label
+                  htmlFor="profile-edit-specialty"
+                  className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5"
+                >
+                  Cheer Position
                 </label>
                 <input
+                  id="profile-edit-specialty"
                   type="text"
-                  value={editRole}
-                  onChange={(e) => setEditRole(e.target.value)}
+                  value={editSpecialty}
+                  onChange={(e) => setEditSpecialty(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white"
                   placeholder="e.g. Top Flyer"
                 />
+                <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+                  Shown next to your name. This is separate from your account
+                  role, which is managed by your team.
+                </p>
               </div>
 
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white"
-                  placeholder="athlete@example.com"
-                />
-              </div>
+              {/* Email and account role are server-owned. Shown, not editable —
+                  an editable field here would either silently revert on the
+                  next sign-in or hand the athlete control of their own
+                  privileges. */}
+              <fieldset disabled className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3.5 space-y-3 opacity-70">
+                <legend className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 px-1">
+                  Managed for you
+                </legend>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 block mb-1">
+                    Email Address
+                  </span>
+                  <p className="text-xs text-zinc-300 break-all">{user.email || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 block mb-1">
+                    Account Role
+                  </span>
+                  <p className="text-xs text-zinc-300">{displayRoleLabel(user)}</p>
+                </div>
+              </fieldset>
 
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <button

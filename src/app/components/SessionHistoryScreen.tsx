@@ -16,11 +16,14 @@ import { PracticeSession } from '../types';
 interface SessionHistoryScreenProps {
   sessions: PracticeSession[];
   onStartPracticeWithPoseId: (poseId: string) => void;
+  /** Send the athlete to the pose gallery. Used by the empty state. */
+  onBrowseLibrary: () => void;
 }
 
 export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
   sessions,
-  onStartPracticeWithPoseId
+  onStartPracticeWithPoseId,
+  onBrowseLibrary
 }) => {
   const [selectedPoseFilter, setSelectedPoseFilter] = useState<string>('All');
   const [showExportModal, setShowExportModal] = useState(false);
@@ -185,13 +188,14 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
             </div>
             <h3 className="text-lg md:text-xl font-black text-white mb-2">No Practice Sessions Yet</h3>
             <p className="text-sm text-zinc-400 max-w-sm mb-6 leading-relaxed">
-              Start by practicing your first pose in the library to build your performance history and track your progress over time.
+              Pick a pose from the library and scan it to start building your
+              history.
             </p>
             <button
-              onClick={() => onStartPracticeWithPoseId('')}
+              onClick={onBrowseLibrary}
               className="px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold uppercase tracking-wider transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)]"
             >
-              Start First Practice
+              Browse Poses
             </button>
           </div>
         ) : null}

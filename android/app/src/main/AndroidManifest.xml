@@ -39,6 +39,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Required from Android 13 (API 33) before any notification can be shown.
+         Declared here so the in-app permission request has something to grant. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets the app surface pending-sync reminders while backgrounded. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- WebView getUserMedia (live MediaPipe camera feed) requires these to be
          grantable at runtime. Declared explicitly here so live analysis works
          even if the @capacitor/camera plugin is removed at some point. -->

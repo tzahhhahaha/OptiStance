@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, CheckCircle2, AlertTriangle, Video, Sparkles, Trophy, Lightbulb, Target } from 'lucide-react';
 import { Pose, MASTERY_THRESHOLD } from '../types';
+import { translate as t } from '../utils/localization';
 
 interface PoseDetailScreenProps {
   pose: Pose;
@@ -25,10 +26,10 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
           className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider hover:bg-white/10 active:scale-95 transition-all"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Library</span>
+          <span>{t('Library')}</span>
         </button>
         <h1 className="font-extrabold text-sm md:text-base text-white uppercase tracking-[0.2em]">
-          Pose Analysis
+          {t('Pose Analysis')}
         </h1>
         <div className="w-20" /> {/* Balance spacer */}
       </header>
@@ -44,7 +45,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#050507] via-transparent to-transparent opacity-80" />
             <div className="absolute bottom-4 right-4 bg-black/70 border border-white/15 backdrop-blur-md px-3.5 py-1 rounded-full text-[11px] font-bold text-zinc-300 uppercase tracking-wider">
-              ICU Standards Calibrated
+              {t('ICU Standards Calibrated')}
             </div>
           </div>
 
@@ -52,14 +53,14 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
           <div className="bg-[#0d0d12]/80 border border-white/[0.08] rounded-3xl p-6 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.6)] flex justify-between items-center">
             <div>
               <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em] mb-1.5 block">
-                {pose.category}
+                {t(pose.category)}
               </span>
               <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">
                 {pose.name}
               </h2>
             </div>
             <div className="bg-white/5 border border-white/10 text-zinc-200 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider">
-              {pose.difficulty}
+              {t(pose.difficulty)}
             </div>
           </div>
         </div>
@@ -68,7 +69,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
         <section className="bg-[#0d0d12]/80 border border-white/[0.08] rounded-3xl p-6 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.6)] space-y-3">
           <h3 className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            Description
+            {t('Description')}
           </h3>
           <p className="text-sm md:text-base text-zinc-300 leading-relaxed">
             {pose.description}
@@ -79,7 +80,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
         <section className="bg-[#0d0d12]/80 border border-white/[0.08] rounded-3xl p-6 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.6)] space-y-4">
           <h3 className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-[0.2em] flex items-center gap-2">
             <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
-            Practice Tips & Form Cues
+            {t('Practice Tips & Form Cues')}
           </h3>
           <ul className="space-y-3">
             {pose.practiceTips.map((tip, idx) => (
@@ -102,7 +103,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
         <section className="bg-[#0d0d12]/80 border border-white/[0.08] rounded-3xl p-6 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.6)] flex flex-col items-center text-center relative overflow-hidden">
           <h3 className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-[0.2em] w-full text-left flex items-center gap-2 mb-6">
             <Trophy className="w-3.5 h-3.5 text-indigo-400" />
-            Kinematic Mastery Level
+            {t('Kinematic Mastery Level')}
           </h3>
 
           {/* Circle Visual */}
@@ -153,10 +154,10 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
 
           <p className="text-sm font-medium text-zinc-400 max-w-sm mb-5">
             {isMastered
-              ? "You've mastered this pose! Keep practicing to maintain competition-ready perfection."
+              ? t("You've mastered this pose! Keep practicing to maintain competition-ready perfection.")
               : isZero
-              ? "You haven't practiced this pose yet."
-              : "Form estimate recorded. Complete more live camera reps to build a reliable trend."}
+              ? t("You haven't practiced this pose yet.")
+              : t('Form estimate recorded. Complete more live camera reps to build a reliable trend.')}
           </p>
 
           {/* Next Goal / Target Milestone */}
@@ -166,11 +167,11 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
                 <Target className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-xs font-bold text-white">Next Form Goal</p>
+                <p className="text-xs font-bold text-white">{t('Next Form Goal')}</p>
                 <p className="text-[11px] text-zinc-400">
                   {isMastered
-                    ? 'Maintain 5-session streak at 95%+ accuracy'
-                    : 'Complete 3 live camera sessions to reach next milestone'}
+                    ? t('Maintain 5-session streak at 95%+ accuracy')
+                    : t('Complete 3 live camera sessions to reach next milestone')}
                 </p>
               </div>
             </div>
@@ -189,7 +190,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
             className="w-full py-4 px-6 rounded-2xl bg-white text-black font-extrabold text-sm md:text-base tracking-wider uppercase flex items-center justify-center gap-2.5 shadow-[0_0_30px_rgba(255,255,255,0.25)] hover:bg-zinc-200 active:scale-[0.98] transition-all relative overflow-hidden group"
           >
             <Video className="w-5 h-5 fill-current" />
-            <span>Start Practice Session</span>
+            <span>{t('Start Practice Session')}</span>
           </button>
         </div>
       </div>

@@ -303,7 +303,14 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
       });
 
       pose.setOptions({
-        modelComplexity: 1,
+        // 0 selects pose_landmark_lite.tflite, which is the only landmark model
+        // vendored into the bundle. The enum is 0=lite, 1=full, 2=heavy -- so
+        // the 1 that used to be here asked for pose_landmark_full.tflite, a file
+        // the app does not ship. That request 404s and the WASM graph aborts,
+        // which is why detection silently never produced landmarks.
+        // Verified by running the engine against the vendored asset set: with
+        // this 0 it loads and returns all 33 landmarks; with 1 it aborts.
+        modelComplexity: 0,
         smoothLandmarks: true,
         enableSegmentation: false,
         smoothSegmentation: false,

@@ -52,7 +52,15 @@ const RUNTIME = [
   'pose_web.binarypb',
 ];
 
-/** Detection models. Only 'lite' matches modelComplexity: 1. */
+/**
+ * Detection models.
+ *
+ * The `modelComplexity` enum in @mediapipe/pose is 0=lite, 1=full, 2=heavy --
+ * it is not a 0-based index into this list. Only complexity 0 is used by the
+ * app, so only the lite model is vendored; setting 1 or 2 without adding the
+ * matching file makes the runtime request a model that 404s, after which the
+ * WASM graph aborts and detection returns nothing.
+ */
 const MODELS = ['pose_landmark_lite.tflite'];
 
 const files = [...RUNTIME, ...MODELS];

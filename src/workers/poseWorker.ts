@@ -15,7 +15,10 @@ self.onmessage = async (evt: MessageEvent) => {
         locateFile: mediapipeLocateFile,
       });
       pose.setOptions({
-        modelComplexity: 1,
+        // Must match AICameraScreen, and 0 is the value that selects the
+        // vendored pose_landmark_lite.tflite. The enum is 0=lite, 1=full,
+        // 2=heavy; a 1 here requests a model the bundle does not contain.
+        modelComplexity: 0,
         smoothLandmarks: true,
         enableSegmentation: false,
         minDetectionConfidence: 0.5,

@@ -17,10 +17,30 @@ describe('isPoseLocked', () => {
     expect(isPoseLocked(makePose('p3', 'Advanced'), false)).toBe(true);
   });
 
-  it('unlocks everything for verified athletes', () => {
+  it('unlocks everything for verified athletes when not manually locked', () => {
     expect(isPoseLocked(makePose('p1', 'Beginner'), true)).toBe(false);
     expect(isPoseLocked(makePose('p2', 'Intermediate'), true)).toBe(false);
     expect(isPoseLocked(makePose('p3', 'Advanced'), true)).toBe(false);
+  });
+
+  it('locks any pose when isLocked is true, even for verified athletes', () => {
+    const beginner = { ...makePose('p1', 'Beginner'), isLocked: true } as Pose;
+    const intermediate = { ...makePose('p2', 'Intermediate'), isLocked: true } as Pose;
+    const advanced = { ...makePose('p3', 'Advanced'), isLocked: true } as Pose;
+
+    expect(isPoseLocked(beginner, true)).toBe(true);
+    expect(isPoseLocked(intermediate, true)).toBe(true);
+    expect(isPoseLocked(advanced, true)).toBe(true);
+    expect(isPoseLocked(beginner, false)).toBe(true);
+  });
+
+  it('exempts administrators: all poses remain unlocked for admins', () => {
+    const lockedAdvanced = { ...makePose('p1', 'Advanced'), isLocked: true } as Pose;
+    const lockedBeginner = { ...makePose('p2', 'Beginner'), isLocked: true } as Pose;
+
+    expect(isPoseLocked(lockedAdvanced, true, true)).toBe(false);
+    expect(isPoseLocked(lockedBeginner, true, true)).toBe(false);
+    expect(isPoseLocked(lockedAdvanced, false, true)).toBe(false);
   });
 });
 

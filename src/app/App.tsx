@@ -13,16 +13,21 @@ import { ProfileScreen } from './components/ProfileScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { INITIAL_POSES } from './data/poses';
-import { Pose, PracticeSession, AppSettings, UserProfile, MASTERY_THRESHOLD } from './types';
+import { Pose, PracticeSession, AppSettings, UserProfile, MASTERY_THRESHOLD, EditableProfileFields } from './types';
+import { supabase } from '../services/supabaseService';
 import { getPendingSessionCount, queuePracticeSession, syncPendingSessions } from '../services/offlineSync';
 import {
+  getCurrentUser,
   getVerificationState,
   resolveStartupAuth,
   subscribeToVerification,
+  trackAthletePresence,
   supabaseSignOut,
   fetchServerPracticeSessions,
   mergePracticeSessions,
-  supabaseGetStunts
+  supabaseGetStunts,
+  supabaseGetArchivedStunts,
+  supabaseUpdateProfile
 } from '../services/supabaseApi';
 import {
   clearAccountData,
@@ -33,10 +38,11 @@ import {
   writeAccountPoses,
   writeAccountSessions
 } from '../services/accountStorage';
-import { applyAdminPoseImages } from './utils/poseReferenceImages';
+import { applyAdminPoseImages, getBundledPoseImage, isLegacyGoogleUrl } from './utils/poseReferenceImages';
 import { notifyMasteryMilestone, notifySessionsWaitingToSync } from './utils/notifications';
 import { isSystemManager, displayRoleLabel } from './utils/profile';
 import type { PoseImageSource } from './utils/poseReferenceImages';
+import type { Stunt } from '../types/supabase';
 import { setAppLanguage } from './utils/localization';
 
 /*
@@ -172,7 +178,25 @@ const bundledPoses = (): Pose[] => JSON.parse(JSON.stringify(INITIAL_POSES)) as 
  */
 const readLibraryForAccount = (accountId: string | null | undefined): Pose[] => {
   const cached = readAccountPoses(accountId);
-  return cached.length > 0 ? cached : bundledPoses();
+  const bundled = bundledPoses();
+  if (cached.length === 0) return bundled;
+
+  // Merge bundled poses so newly added library poses (such as Scorpion) appear
+  // immediately even if the athlete has existing cached progress from older versions.
+  const cachedById = new Map<string, Pose>(cached.map((p) => [p.id, p]));
+  const merged: Pose[] = bundled.map((b) => {
+    const existing = cachedById.get(b.id);
+    return existing ? { ...b, masteryPercentage: existing.masteryPercentage ?? 0 } : b;
+  });
+
+  // Preserve any custom or non-bundled cached poses
+  for (const c of cached) {
+    if (!bundled.some((b) => b.id === c.id)) {
+      merged.push(c);
+    }
+  }
+
+  return merged;
 };
 
 export default function App() {
@@ -242,6 +266,22 @@ export default function App() {
   // has actually practised against stay in `poses` below and are never
   // overwritten with server data.
   const [poseImages, setPoseImages] = useState<PoseImageSource[]>([]);
+  const [serverStunts, setServerStunts] = useState<Stunt[]>(() => {
+    try {
+      const raw = localStorage.getItem('optistance_server_stunts_cache');
+      return raw ? (JSON.parse(raw) as Stunt[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [serverArchivedStunts, setServerArchivedStunts] = useState<Stunt[]>(() => {
+    try {
+      const raw = localStorage.getItem('optistance_server_archived_stunts_cache');
+      return raw ? (JSON.parse(raw) as Stunt[]) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     // Defaults first, then whatever was persisted on top. Merging this way
@@ -341,13 +381,142 @@ export default function App() {
   const poseImagesFetchedAtRef = useRef(0);
 
   useEffect(() => {
-    if (!isAuthenticated || user.isGuest || user.emailVerified === false) {
+    // Stunt updates event listeners: ensures live, instantaneous synchronization
+    // between Admin console and athlete Pose Library / AI Camera
+    const handleLockEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ stuntId: string; stuntName?: string; poseKey?: string | null; isLocked: boolean }>).detail;
+      if (!detail) return;
+      setServerStunts((prev) => {
+        const matchIndex = prev.findIndex(
+          (s) =>
+            s.id === detail.stuntId ||
+            (detail.poseKey && s.pose_key === detail.poseKey) ||
+            (detail.stuntName && s.name.toLowerCase() === detail.stuntName.toLowerCase())
+        );
+        let next: Stunt[];
+        if (matchIndex >= 0) {
+          next = prev.map((s, i) => (i === matchIndex ? { ...s, is_locked: detail.isLocked } : s));
+        } else {
+          next = [
+            ...prev,
+            {
+              id: detail.stuntId,
+              name: detail.stuntName || '',
+              pose_key: detail.poseKey,
+              is_locked: detail.isLocked,
+              category: 'stunt',
+              difficulty_tier: 'beginner',
+              is_archived: false,
+            } as Stunt,
+          ];
+        }
+        try {
+          localStorage.setItem('optistance_server_stunts_cache', JSON.stringify(next));
+        } catch {
+          // ignore storage quota errors
+        }
+        return next;
+      });
+
+      // Update poses state so bundled poses immediately reflect the lock
+      setPoses((prev) =>
+        prev.map((p) => {
+          const isMatch =
+            p.id === detail.stuntId ||
+            (detail.poseKey && p.id === detail.poseKey) ||
+            (detail.stuntName && p.name.toLowerCase() === detail.stuntName.toLowerCase());
+          return isMatch ? { ...p, isLocked: detail.isLocked } : p;
+        })
+      );
+
+      try {
+        const stored = localStorage.getItem('optistance_locked_stunts');
+        const set = new Set<string>(stored ? JSON.parse(stored) : []);
+        if (detail.isLocked) {
+          set.add(detail.stuntId);
+          if (detail.poseKey) set.add(detail.poseKey);
+          if (detail.stuntName) set.add(detail.stuntName.toLowerCase().trim());
+        } else {
+          set.delete(detail.stuntId);
+          if (detail.poseKey) set.delete(detail.poseKey);
+          if (detail.stuntName) set.delete(detail.stuntName.toLowerCase().trim());
+        }
+        localStorage.setItem('optistance_locked_stunts', JSON.stringify([...set]));
+      } catch {
+        // ignore
+      }
+
       poseImagesLoadedRef.current = false;
       poseImagesFetchedAtRef.current = 0;
-      setPoseImages([]);
-      return;
-    }
+    };
 
+    const handleArchiveEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ stuntId: string; stuntName?: string; poseKey?: string | null }>).detail;
+      if (!detail) return;
+      setServerStunts((prev) => {
+        const target = prev.find((s) => s.id === detail.stuntId);
+        if (target) {
+          setServerArchivedStunts((archPrev) => {
+            const nextArch = [{ ...target, is_archived: true }, ...archPrev];
+            try {
+              localStorage.setItem('optistance_server_archived_stunts_cache', JSON.stringify(nextArch));
+            } catch {
+              // ignore storage quota errors
+            }
+            return nextArch;
+          });
+        }
+        const nextStunts = prev.filter((s) => s.id !== detail.stuntId);
+        try {
+          localStorage.setItem('optistance_server_stunts_cache', JSON.stringify(nextStunts));
+        } catch {
+          // ignore storage quota errors
+        }
+        return nextStunts;
+      });
+      poseImagesLoadedRef.current = false;
+      poseImagesFetchedAtRef.current = 0;
+    };
+
+    const handleRestoreEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ stuntId: string; stuntName?: string; poseKey?: string | null }>).detail;
+      if (!detail) return;
+      setServerArchivedStunts((prev) => {
+        const target = prev.find((s) => s.id === detail.stuntId);
+        if (target) {
+          setServerStunts((stuntPrev) => {
+            const nextStunts = [{ ...target, is_archived: false }, ...stuntPrev];
+            try {
+              localStorage.setItem('optistance_server_stunts_cache', JSON.stringify(nextStunts));
+            } catch {
+              // ignore storage quota errors
+            }
+            return nextStunts;
+          });
+        }
+        const nextArch = prev.filter((s) => s.id !== detail.stuntId);
+        try {
+          localStorage.setItem('optistance_server_archived_stunts_cache', JSON.stringify(nextArch));
+        } catch {
+          // ignore storage quota errors
+        }
+        return nextArch;
+      });
+      poseImagesLoadedRef.current = false;
+      poseImagesFetchedAtRef.current = 0;
+    };
+
+    window.addEventListener('optistance:stunt-lock', handleLockEvent);
+    window.addEventListener('optistance:stunt-archive', handleArchiveEvent);
+    window.addEventListener('optistance:stunt-restore', handleRestoreEvent);
+    return () => {
+      window.removeEventListener('optistance:stunt-lock', handleLockEvent);
+      window.removeEventListener('optistance:stunt-archive', handleArchiveEvent);
+      window.removeEventListener('optistance:stunt-restore', handleRestoreEvent);
+    };
+  }, []);
+
+  useEffect(() => {
     // Only pull when the library is actually on screen, so no athlete pays for
     // this request during a session that never opens the library.
     if (currentTab !== 'library') return;
@@ -362,10 +531,21 @@ export default function App() {
 
     void (async () => {
       try {
-        const stunts = await supabaseGetStunts();
+        const [stunts, archived] = await Promise.all([
+          supabaseGetStunts(),
+          supabaseGetArchivedStunts().catch(() => []),
+        ]);
         if (cancelled) return;
         poseImagesLoadedRef.current = true;
         poseImagesFetchedAtRef.current = Date.now();
+        setServerStunts(stunts);
+        setServerArchivedStunts(archived);
+        try {
+          localStorage.setItem('optistance_server_stunts_cache', JSON.stringify(stunts));
+          localStorage.setItem('optistance_server_archived_stunts_cache', JSON.stringify(archived));
+        } catch {
+          // ignore storage quota errors
+        }
         setPoseImages(
           stunts.map((s) => ({
             pose_key: s.pose_key,
@@ -375,7 +555,9 @@ export default function App() {
       } catch (e) {
         // Guests and offline athletes land here. The bundled images are already
         // on screen, so there is nothing to recover and nothing to report.
-        if (!cancelled && !isBackgroundRevalidation) setPoseImages([]);
+        if (!cancelled && !isBackgroundRevalidation) {
+          setPoseImages([]);
+        }
         console.warn('Could not load admin pose images:', e);
       }
     })();
@@ -383,7 +565,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, user.isGuest, user.emailVerified, currentTab]);
+  }, [currentTab]);
 
   // Live verification gating: watch is_verified on the profile row so locked
   // poses/camera unlock the moment an admin verifies the athlete (and lock
@@ -413,6 +595,16 @@ export default function App() {
     return () => {
       cancelled = true;
       unsubscribe();
+    };
+  }, [isAuthenticated, user.isGuest, user.id]);
+
+  // Track online presence for signed-in athletes so admin console displays
+  // real-time active status instead of a static "fake active" badge.
+  useEffect(() => {
+    if (!isAuthenticated || user.isGuest || !user.id) return;
+    const cleanup = trackAthletePresence(user.id);
+    return () => {
+      cleanup();
     };
   }, [isAuthenticated, user.isGuest, user.id]);
 
@@ -589,6 +781,38 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-login listener when user returns from clicking Supabase confirmation email
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
+        try {
+          const current = await getCurrentUser();
+          if (current) {
+            setUser({
+              id: current.id,
+              name: current.fullName,
+              email: current.email,
+              role: current.role === 'SystemManager' ? 'SystemManager' : 'Cheer Athlete',
+              avatarUrl: '',
+              totalSessions: 0,
+              totalPracticeMinutes: 0,
+              masteredCount: 0,
+              isGuest: false,
+              emailVerified: current.emailVerified !== false,
+              isVerified: current.isVerified === true,
+            });
+            setIsAuthenticated(true);
+            setCurrentTab('library');
+            setSelectedPose(null);
+          }
+        } catch (err) {
+          console.warn('Auto-login on auth state change failed:', err);
+        }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Handle Authentication flow
   const handleAuthSuccess = (authenticatedUser: UserProfile) => {
     setUser(authenticatedUser);
@@ -649,10 +873,18 @@ export default function App() {
     const accountId = user.isGuest ? null : user.id ?? null;
     if (accountId) clearAccountData(accountId);
     setSessions([]);
+    setServerStunts([]);
     // A copy, not the constant: `handleSaveSession` raises `masteryPercentage`
     // on these objects, and mutating the shared `INITIAL_POSES` would carry the
     // signed-out athlete's progress into the next account to use the app.
     setPoses(bundledPoses());
+  };
+
+  const handleEditProfile = (edits: EditableProfileFields) => {
+    setUser((prev) => ({ ...prev, ...edits }));
+    if (!user.isGuest && user.id) {
+      void supabaseUpdateProfile(edits);
+    }
   };
 
   // Handle saving a practice session
@@ -745,10 +977,124 @@ export default function App() {
 
   // What the athlete sees, as opposed to what is stored. `poses` stays the
   // account's own record (mastery scores the athlete earned); `displayPoses` is
-  // that same list with admin-uploaded pictures swapped in. Deriving it means
-  // the overlay can never be written back into per-account localStorage, so an
-  // image the admin replaces later still updates for everyone.
-  const displayPoses = useMemo(() => applyAdminPoseImages(poses, poseImages), [poses, poseImages]);
+  // that same list with admin-uploaded pictures swapped in and any newly added
+  // stunts from the syllabus seamlessly included so all admin poses appear in the UI.
+  const displayPoses = useMemo(() => {
+    const overlaid = applyAdminPoseImages(poses, poseImages);
+
+    // Read locked set from localStorage as a reliable sync bridge
+    const lockedFromStorage = (() => {
+      try {
+        const raw = localStorage.getItem('optistance_locked_stunts');
+        return new Set<string>(raw ? JSON.parse(raw) : []);
+      } catch {
+        return new Set<string>();
+      }
+    })();
+
+    const lockedKeyMap = new Map<string, boolean>();
+    const lockedNameMap = new Map<string, boolean>();
+    for (const s of serverStunts) {
+      if (s.is_locked !== undefined) {
+        if (s.pose_key) lockedKeyMap.set(s.pose_key, Boolean(s.is_locked));
+        lockedKeyMap.set(s.id, Boolean(s.is_locked));
+        lockedNameMap.set(s.name.toLowerCase().trim(), Boolean(s.is_locked));
+      }
+    }
+
+    const archivedKeys = new Set(serverArchivedStunts.map((s) => s.pose_key).filter(Boolean));
+    serverArchivedStunts.forEach((s) => archivedKeys.add(s.id));
+    const archivedNames = new Set(serverArchivedStunts.map((s) => s.name.toLowerCase().trim()));
+
+    // Archived poses are hidden from athlete view until restored by an admin
+    const activeOverlaid = overlaid.filter(
+      (p) => !archivedKeys.has(p.id) && !archivedNames.has(p.name.toLowerCase().trim())
+    );
+
+    const lockedOverlaid = activeOverlaid.map((p) => {
+      const isLockedFromServer = lockedKeyMap.has(p.id)
+        ? lockedKeyMap.get(p.id)
+        : lockedNameMap.get(p.name.toLowerCase().trim());
+
+      const isLockedFromLocal =
+        lockedFromStorage.has(p.id) ||
+        lockedFromStorage.has(p.name.toLowerCase().trim());
+
+      const isLocked = isLockedFromServer !== undefined
+        ? isLockedFromServer
+        : isLockedFromLocal || Boolean(p.isLocked);
+
+      return { ...p, isLocked };
+    });
+
+    if (serverStunts.length === 0 && serverArchivedStunts.length === 0) {
+      return lockedOverlaid;
+    }
+
+    const existingKeys = new Set(lockedOverlaid.map((p) => p.id));
+    const existingNames = new Set(lockedOverlaid.map((p) => p.name.toLowerCase().trim()));
+
+    const extraPoses: Pose[] = [];
+    for (const s of serverStunts) {
+      if (s.pose_key && existingKeys.has(s.pose_key)) continue;
+      if (existingNames.has(s.name.toLowerCase().trim())) continue;
+
+      const mapCat = (c?: string): Pose['category'] => {
+        const cat = (c || '').toLowerCase();
+        if (cat.includes('pom')) return 'Pom Motion';
+        if (cat.includes('jump')) return 'Jumps';
+        if (cat.includes('tumb')) return 'Tumbling';
+        return 'Stunts';
+      };
+
+      const mapDiff = (d?: string): Pose['difficulty'] => {
+        const diff = (d || '').toLowerCase();
+        if (diff === 'intermediate') return 'Intermediate';
+        if (diff === 'advanced') return 'Advanced';
+        return 'Beginner';
+      };
+
+      const fallbackImg = getBundledPoseImage(s.pose_key, s.name) || '/poses/liberty.jpg';
+      const effectiveImg = s.reference_image_url && !isLegacyGoogleUrl(s.reference_image_url)
+        ? s.reference_image_url
+        : fallbackImg;
+
+      const extraLocked =
+        Boolean(s.is_locked) ||
+        lockedFromStorage.has(s.id) ||
+        (s.pose_key ? lockedFromStorage.has(s.pose_key) : false) ||
+        lockedFromStorage.has(s.name.toLowerCase().trim());
+
+      extraPoses.push({
+        id: s.pose_key || s.id,
+        name: s.name,
+        category: mapCat(s.category),
+        difficulty: mapDiff(s.difficulty_tier),
+        description: s.description || s.coaching_cues || 'Coached cheerleading stunt syllabus.',
+        practiceTips: s.coaching_cues ? [{ text: s.coaching_cues, type: 'check' }] : [],
+        masteryPercentage: 0,
+        imageUrl: effectiveImg,
+        points: s.target_points || 150,
+        idealAngles: {},
+        commonMistakes: s.common_mistakes ? [s.common_mistakes] : [],
+        icuStandardGuideline: 'ICU Competition Standard Stunt Position.',
+        defaultSkeleton: { joints: [], lines: [] },
+        sampleCorrectionMessage: s.coaching_cues || 'Maintain tight core and steady balance.',
+        isLocked: extraLocked,
+      });
+    }
+
+    return extraPoses.length > 0 ? [...lockedOverlaid, ...extraPoses] : lockedOverlaid;
+  }, [poses, poseImages, serverStunts, serverArchivedStunts]);
+
+  // Keep selected pose lock status synchronized if an admin updates it
+  useEffect(() => {
+    if (!selectedPose) return;
+    const match = displayPoses.find((p) => p.id === selectedPose.id);
+    if (match && match.isLocked !== selectedPose.isLocked) {
+      setSelectedPose((prev) => (prev ? { ...prev, isLocked: match.isLocked } : null));
+    }
+  }, [displayPoses, selectedPose]);
 
   // 1. Initial Loading Screen (Runs first upon app launch)
   if (isLoading) {
@@ -810,7 +1156,8 @@ export default function App() {
           <AICameraScreen
             initialPose={activeCameraPose ?? null}
             allPoses={displayPoses}
-            isVerified={user.isVerified === true}
+            isVerified={user.isVerified === true || isSystemManager(user)}
+            isAdmin={isSystemManager(user)}
             audioCuesEnabled={settings.audioCues}
             onClose={() => {
               setActiveCameraPose(null);
@@ -850,6 +1197,8 @@ export default function App() {
               userName={user.name}
               userRole={displayRoleLabel(user)}
               onBack={() => {
+                poseImagesLoadedRef.current = false;
+                poseImagesFetchedAtRef.current = 0;
                 setCurrentTab('library');
                 setDrawerOpen(false);
               }}
@@ -863,6 +1212,7 @@ export default function App() {
         <div className="relative z-10 max-w-7xl mx-auto min-h-screen pb-24">
           <PoseDetailScreen
             pose={selectedPose}
+            isAdmin={isSystemManager(user)}
             onBack={() => setSelectedPose(null)}
             onStartPractice={handleStartPractice}
           />
@@ -875,7 +1225,7 @@ export default function App() {
               settings={settings}
               onUpdateSettings={(newVals) => setSettings((prev) => ({ ...prev, ...newVals }))}
               user={user}
-              onEditProfile={(edits) => setUser((prev) => ({ ...prev, ...edits }))}
+              onEditProfile={handleEditProfile}
               onLogout={handleLogout}
               onBack={handleBackToDrawer}
             />
@@ -911,7 +1261,8 @@ export default function App() {
             {currentTab === 'library' && (
               <PoseLibraryScreen
                 poses={displayPoses}
-                isVerified={user.isVerified === true}
+                isVerified={user.isVerified === true || isSystemManager(user)}
+                isAdmin={isSystemManager(user)}
                 onSelectPose={(pose) => setSelectedPose(pose)}
                 onStartPractice={handleStartPractice}
               />
@@ -931,7 +1282,7 @@ export default function App() {
                 poses={displayPoses}
                 sessions={sessions}
                 onUpdateUser={(newVals) => setUser((prev) => ({ ...prev, ...newVals }))}
-                onEditProfile={(edits) => setUser((prev) => ({ ...prev, ...edits }))}
+                onEditProfile={handleEditProfile}
                 onStartPracticeWithPoseId={handleStartPracticeWithPoseId}
               />
             )}

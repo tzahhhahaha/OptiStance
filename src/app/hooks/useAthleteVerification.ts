@@ -29,6 +29,13 @@ export const useAthleteVerification = (
   const request = async () => {
     setError(null);
     setNotice(null);
+
+    // Condition 1: Athlete email must be verified first
+    if (!user.emailVerified) {
+      setError('Email verification required: Please confirm your email address above before unlocking Intermediate & Advanced poses.');
+      return;
+    }
+
     setIsRequesting(true);
     try {
       const next = await requestVerification();

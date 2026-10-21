@@ -287,12 +287,16 @@ function getLandmark(landmarks: LandmarkMap, key: number) {
 
 export function filterPoses(poses: PomMotion[], query: string, category: string) {
   const normalizedQuery = query.trim().toLowerCase();
+  const cleanQ = normalizedQuery.replace(/[-_\s]+/g, ' ');
   return poses.filter((pose) => {
     const matchesCategory = category === 'All' || pose.category === category;
+    const cleanName = pose.name.toLowerCase().replace(/[-_\s]+/g, ' ');
     const matchesQuery =
       normalizedQuery.length === 0 ||
       pose.name.toLowerCase().includes(normalizedQuery) ||
-      pose.description.toLowerCase().includes(normalizedQuery);
+      cleanName.includes(cleanQ) ||
+      pose.description.toLowerCase().includes(normalizedQuery) ||
+      pose.difficulty.toLowerCase().includes(normalizedQuery);
 
     return matchesCategory && matchesQuery;
   });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Menu, Award } from 'lucide-react';
 import { UserProfile } from '../types';
 import { displayRoleLabel } from '../utils/profile';
@@ -25,6 +25,23 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   isDrawerOpen
 }) => {
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const handleMenuClick = onOpenMenu || onOpenDrawer;
   const athleteName = user?.name || 'Athlete';
   const athleteRole = displayRoleLabel(user);
@@ -63,6 +80,25 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Connection & Offline Sync Status Indicator */}
+        <div
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-colors ${
+            isOnline
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+              : 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+          }`}
+          title={isOnline ? 'Online · Cloud Realtime Sync' : 'Offline Mode · Local Storage Active'}
+        >
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+            }`}
+          />
+          <span className="hidden sm:inline">
+            {isOnline ? 'Online Sync' : 'Offline Mode'}
+          </span>
+        </div>
+
         {typeof totalMastered === 'number' && (
           <div
             className="hidden sm:flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-semibold"

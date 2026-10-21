@@ -6,7 +6,7 @@ import {
   analyticsService,
 } from './supabaseService';
 import type { StuntInsert, SessionWithRelations } from './supabaseService';
-import type { VerificationStatus } from '@/app/types';
+import type { VerificationStatus, EditableProfileFields } from '@/app/types';
 import type { PracticeSession } from '@/app/types';
 import type { Stunt, User as DbUser, UserRole as DbUserRole, AnalyticsSnapshot } from '@/types/supabase';
 
@@ -88,6 +88,42 @@ export const supabaseResendConfirmation = async (email: string): Promise<void> =
 export const supabaseUpdatePassword = async (newPassword: string): Promise<void> => {
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) throw error;
+};
+
+/**
+ * Update the athlete's profile (name and cheer specialty) in Supabase.
+ * Updates auth user metadata so it travels across devices, and attempts to update
+ * public.users full_name.
+ */
+export const supabaseUpdateProfile = async (edits: EditableProfileFields): Promise<void> => {
+  const session = await getAuthSessionQuietly();
+  if (!session) return;
+
+  const dataToUpdate: Record<string, string> = {
+    full_name: edits.name,
+  };
+  if (edits.specialty !== undefined) {
+    dataToUpdate.specialty = edits.specialty;
+  }
+
+  const { error: authError } = await supabase.auth.updateUser({
+    data: dataToUpdate,
+  });
+  if (authError) {
+    console.warn('[supabaseApi] Could not update auth user metadata:', authError.message);
+  }
+
+  try {
+    const { error: dbError } = await supabase
+      .from('users')
+      .update({ full_name: edits.name })
+      .eq('id', session.user.id);
+    if (dbError) {
+      console.warn('[supabaseApi] Could not update public.users row:', dbError.message);
+    }
+  } catch {
+    // Graceful fallback if RLS or network prevents direct table update
+  }
 };
 
 export const supabaseDeactivateAccount = async (userId: string): Promise<void> => {
@@ -310,6 +346,76 @@ export const subscribeToVerification = (
   return () => {
     void supabase.removeChannel(channel);
   };
+};
+
+/**
+ * Track an active athlete's online presence in the real-time presence channel.
+ */
+export const trackAthletePresence = (userId: string): (() => void) => {
+  if (!userId) return () => {};
+
+  try {
+    const channel = supabase.channel('online-athletes');
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED' && typeof channel.track === 'function') {
+        void channel.track({
+          userId,
+          onlineAt: new Date().toISOString(),
+        });
+      }
+    });
+
+    return () => {
+      try {
+        if (typeof channel.untrack === 'function') void channel.untrack();
+        void supabase.removeChannel(channel);
+      } catch {
+        // ignore cleanup error
+      }
+    };
+  } catch {
+    return () => {};
+  }
+};
+
+/**
+ * Subscribe to the online presence channel to see which athletes are currently online.
+ */
+export const subscribeToOnlineAthletes = (
+  onSync: (onlineUserIds: string[]) => void
+): (() => void) => {
+  try {
+    const channel = supabase.channel('online-athletes');
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        try {
+          if (typeof channel.presenceState !== 'function') return;
+          const state = channel.presenceState();
+          const userIds: string[] = [];
+          for (const presences of Object.values(state)) {
+            for (const p of presences as Array<{ userId?: string }>) {
+              if (p?.userId && !userIds.includes(p.userId)) {
+                userIds.push(p.userId);
+              }
+            }
+          }
+          onSync(userIds);
+        } catch {
+          // ignore presence error
+        }
+      })
+      .subscribe();
+
+    return () => {
+      try {
+        void supabase.removeChannel(channel);
+      } catch {
+        // ignore cleanup error
+      }
+    };
+  } catch {
+    return () => {};
+  }
 };
 
 // ============================================================
@@ -630,6 +736,26 @@ export const supabaseUpdateStunt = async (stuntId: string, updates: Partial<Stun
 
 export const supabaseDeleteStunt = async (stuntId: string): Promise<void> => {
   await stuntService.archiveStunt(stuntId);
+};
+
+export const supabaseArchiveStunt = async (stuntId: string): Promise<void> => {
+  await stuntService.archiveStunt(stuntId);
+};
+
+export const supabaseGetArchivedStunts = async (): Promise<Stunt[]> => {
+  return stuntService.getArchivedStunts();
+};
+
+export const supabaseRestoreStunt = async (stuntId: string): Promise<void> => {
+  await stuntService.restoreStunt(stuntId);
+};
+
+export const supabasePermanentlyDeleteStunt = async (stuntId: string): Promise<void> => {
+  await stuntService.deleteStunt(stuntId);
+};
+
+export const supabaseToggleStuntLock = async (stuntId: string, isLocked: boolean): Promise<void> => {
+  await stuntService.toggleLock(stuntId, isLocked);
 };
 
 export const supabaseGetSessions = async (): Promise<SessionWithRelations[]> => {

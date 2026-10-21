@@ -7,6 +7,7 @@ import { translate as t } from '../utils/localization';
 interface PoseLibraryScreenProps {
   poses: Pose[];
   isVerified: boolean;
+  isAdmin?: boolean;
   onSelectPose: (pose: Pose) => void;
   onStartPractice: (pose: Pose) => void;
 }
@@ -14,6 +15,7 @@ interface PoseLibraryScreenProps {
 export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
   poses,
   isVerified,
+  isAdmin = false,
   onSelectPose,
   onStartPractice
 }) => {
@@ -26,11 +28,20 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
   const categories: (string | PoseCategory)[] = ['All', 'Pom Motion', 'Stunts', 'Jumps'];
   const difficulties: (string | PoseDifficulty)[] = ['All', 'Beginner', 'Intermediate', 'Advanced'];
 
+  const normalize = (text: string) => text.toLowerCase().replace(/[-_\s]+/g, ' ');
+
   const filteredPoses = poses.filter((pose) => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    const normalizedQ = normalize(trimmed);
+
     const matchesSearch =
-      pose.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      pose.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      pose.category.toLowerCase().includes(searchQuery.toLowerCase());
+      !trimmed ||
+      pose.name.toLowerCase().includes(trimmed) ||
+      normalize(pose.name).includes(normalizedQ) ||
+      pose.description.toLowerCase().includes(trimmed) ||
+      pose.category.toLowerCase().includes(trimmed) ||
+      pose.difficulty.toLowerCase().includes(trimmed);
+
     const matchesCategory = selectedCategory === 'All' || pose.category === selectedCategory;
     const matchesDifficulty = selectedDifficulty === 'All' || pose.difficulty === selectedDifficulty;
     return matchesSearch && matchesCategory && matchesDifficulty;
@@ -93,8 +104,18 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('Search poses (e.g., T-Motion, High V, Liberty, Half-T)...')}
-            className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-[#0f0f13]/80 border border-white/10 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/40 text-sm text-white placeholder:text-zinc-600 backdrop-blur-xl shadow-inner transition-all"
+            className="w-full pl-12 pr-11 py-3.5 rounded-2xl bg-[#0f0f13]/80 border border-white/10 focus:border-indigo-500/60 focus:outline-none focus:ring-1 focus:ring-indigo-500/40 text-sm text-white placeholder:text-zinc-600 backdrop-blur-xl shadow-inner transition-all"
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Clear search"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Category Pills */}
@@ -151,6 +172,7 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
         <PoseList
           poses={filteredPoses}
           isVerified={isVerified}
+          isAdmin={isAdmin}
           onSelectPose={onSelectPose}
           onStartPractice={onStartPractice}
           onLockedPoseClick={(pose) => setLockedPose(pose)}
@@ -159,8 +181,14 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
 
       {/* Verification required modal (gated pose tapped while unverified) */}
       {lockedPose && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="relative w-full max-w-sm bg-[#0e0e14] border border-white/10 rounded-3xl p-6 shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setLockedPose(null)}
+        >
+          <div
+            className="relative w-full max-w-sm bg-[#0e0e14] border border-white/10 rounded-3xl p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               onClick={() => setLockedPose(null)}
               className="absolute top-4 right-4 p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors"
@@ -171,18 +199,39 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-300 flex items-center justify-center mb-4">
               <Lock className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-black text-white mb-2">{t('Verification Required')}</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed mb-5">
-              <span className="font-semibold text-zinc-200">{lockedPose.name}</span> is an{' '}
-              {lockedPose.difficulty.toLowerCase()} pose. Verify your athlete account to unlock Intermediate and
-              Advanced poses in the gallery and AI camera.
-            </p>
-            <button
-              onClick={() => setLockedPose(null)}
-              className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
-            >
-              {t('Got it')}
-            </button>
+            {lockedPose.isLocked ? (
+              <>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-extrabold uppercase tracking-widest mb-3">
+                  <Lock className="w-3 h-3" />
+                  <span>{t('Currently Unavailable')}</span>
+                </div>
+                <h3 className="text-lg font-black text-white mb-2">{t('Pose Currently Unavailable')}</h3>
+                <p className="text-xs text-zinc-300 leading-relaxed mb-5">
+                  <span className="font-semibold text-white">{lockedPose.name}</span> has been temporarily locked by your admin. Please check back later or choose another active pose.
+                </p>
+                <button
+                  onClick={() => setLockedPose(null)}
+                  className="w-full py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(245,158,11,0.4)] active:scale-[0.98] transition-all"
+                >
+                  {t('Got it')}
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-black text-white mb-2">{t('Verification Required')}</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed mb-5">
+                  <span className="font-semibold text-zinc-200">{lockedPose.name}</span> is an{' '}
+                  {lockedPose.difficulty.toLowerCase()} pose. Verify your athlete account to unlock Intermediate and
+                  Advanced poses in the gallery and AI camera.
+                </p>
+                <button
+                  onClick={() => setLockedPose(null)}
+                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
+                >
+                  {t('Got it')}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

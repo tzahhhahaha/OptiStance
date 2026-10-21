@@ -8,13 +8,15 @@ import {
   Lock,
   ArrowRight,
   ShieldCheck,
-  MailWarning,
-  X
+  X,
+  Send,
+  CheckCircle2
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import {
   supabaseLogin,
-  supabaseSignUp
+  supabaseSignUp,
+  supabaseResetPassword
 } from '../../services/supabaseApi';
 import { describeAuthError } from '../utils/authErrors';
 import { useResendVerification } from '../hooks/useResendVerification';
@@ -32,6 +34,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   /** Prefilled from the login field so the recovery panel can name the account. */
   const [resetEmail, setResetEmail] = useState('');
+  const [resetStatus, setResetStatus] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [isSendingReset, setIsSendingReset] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginNeedsConfirmation, setLoginNeedsConfirmation] = useState(false);
@@ -46,8 +51,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [signupPassword, setSignupPassword] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(true);
 
-  // Resend helper reused for the "email not confirmed" login case.
+  // Post-Signup Verification Choice Modal State
+  const [pendingUser, setPendingUser] = useState<UserProfile | null>(null);
+  const [showVerifyChoiceModal, setShowVerifyChoiceModal] = useState(false);
+
+  // Resend helper for login and signup confirmation flows
   const loginResend = useResendVerification(loginEmail);
+  const signupResend = useResendVerification(pendingUser?.email || signupEmail);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,7 +149,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
         isVerified: false
       };
 
-      onAuthSuccess(newUser);
+      // Prompt user choice: Send confirmation email now or skip to profile later
+      setPendingUser(newUser);
+      setShowVerifyChoiceModal(true);
     } catch (err) {
       setError(describeAuthError(err));
     } finally {
@@ -437,20 +449,106 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
           send button, called the API, and only *then* revealed it had emailed
           nothing — a two-step dead end. It now states the situation and the
           working route (ask an administrator) up front. */}
+      {/* Post-Signup Verification Choice Modal */}
+      {showVerifyChoiceModal && pendingUser && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-[#0e0e14] border border-white/10 rounded-3xl p-6 sm:p-7 max-w-sm w-full shadow-2xl relative animate-fade-in-up text-[#E0E0E6]"
+          >
+            <div className="text-center py-2">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+                <ShieldCheck className="w-7 h-7" />
+              </div>
+
+              <h3 className="text-lg font-black text-white mb-1.5">
+                Confirm Authentication?
+              </h3>
+
+              <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
+                Would you like to send an email confirmation link now to:
+              </p>
+              <p className="text-xs font-semibold text-indigo-300 break-all bg-white/5 border border-white/10 rounded-xl py-1.5 px-3 mb-4">
+                {pendingUser.email}
+              </p>
+
+              <p className="text-[11px] text-zinc-500 mb-5 leading-relaxed text-left bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
+                <span className="font-semibold text-zinc-300 block mb-0.5">Your Choice:</span>
+                You can authenticate now, or skip and do it anytime later from your <span className="text-indigo-300 font-semibold">Profile tab</span> to unlock advanced stunts.
+              </p>
+
+              {signupResend.status && (
+                <div className="mb-4 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2 text-left">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{signupResend.status}</span>
+                </div>
+              )}
+              {signupResend.error && (
+                <div className="mb-4 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs text-left">
+                  {signupResend.error}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await signupResend.resend();
+                    // Only auto-proceed into the app if the email sent successfully!
+                    // If an error occurred, keep modal open so the user sees the red error banner.
+                    if (res?.ok) {
+                      setTimeout(() => {
+                        setShowVerifyChoiceModal(false);
+                        onAuthSuccess(pendingUser);
+                      }, 2000);
+                    }
+                  }}
+                  disabled={signupResend.isSending}
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{signupResend.isSending ? 'Sending Link…' : 'Send Confirmation Email'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowVerifyChoiceModal(false);
+                    onAuthSuccess(pendingUser);
+                  }}
+                  className="w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white text-xs font-bold transition-all"
+                >
+                  Skip for Now (Go to App)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showForgotPassword && (
         <div
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-          onClick={() => setShowForgotPassword(false)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
+          onClick={() => {
+            setShowForgotPassword(false);
+            setResetStatus(null);
+            setResetError(null);
+          }}
         >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="recovery-title"
-            className="bg-[#0e0e14] border border-white/10 rounded-3xl p-6 max-w-sm w-full shadow-2xl relative animate-fade-in-up"
+            className="bg-[#0e0e14] border border-white/10 rounded-3xl p-6 sm:p-7 max-w-sm w-full shadow-2xl relative animate-fade-in-up"
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              onClick={() => setShowForgotPassword(false)}
+              onClick={() => {
+                setShowForgotPassword(false);
+                setResetStatus(null);
+                setResetError(null);
+              }}
               aria-label="Close"
               className="absolute top-4 right-4 text-zinc-400 hover:text-white"
             >
@@ -458,40 +556,82 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
             </button>
 
             <div className="text-center py-2">
-              <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-3">
-                <MailWarning className="w-6 h-6" />
+              <div className="w-14 h-14 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+                <Lock className="w-7 h-7" />
               </div>
-              <h3 id="recovery-title" className="text-base font-bold text-white mb-1">
-                Can&apos;t get back in?
+              <h3 id="recovery-title" className="text-lg font-black text-white mb-1.5">
+                Reset Your Password
               </h3>
               <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-                This app has no email service configured, so there&apos;s no reset
-                link we can send you.
+                Enter your registered Gmail address and we will dispatch a password recovery link to your inbox.
               </p>
 
-              {resetEmail.trim() && (
-                <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-                  Tell your coach or team admin you need a reset for{' '}
-                  <span className="text-zinc-200 font-semibold break-all">
-                    {resetEmail.trim()}
-                  </span>
-                  .
-                </p>
+              {resetStatus && (
+                <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs flex items-center gap-2 text-left">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{resetStatus}</span>
+                </div>
               )}
 
-              <div className="rounded-xl bg-white/[0.03] border border-white/[0.08] p-3.5 mb-4 text-left">
-                <p className="text-xs font-bold text-white mb-1.5">How to get back in</p>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  An administrator can set a new password for you from{' '}
-                  <span className="text-zinc-300">Athletes</span> in the admin
-                  panel. Check with them that they&apos;re who you think they are
-                  before handing over any details.
-                </p>
-              </div>
+              {resetError && (
+                <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs text-left">
+                  {resetError}
+                </div>
+              )}
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!resetEmail.trim() || !resetEmail.includes('@')) {
+                    setResetError('Please enter a valid email address.');
+                    return;
+                  }
+                  setIsSendingReset(true);
+                  setResetError(null);
+                  setResetStatus(null);
+                  try {
+                    await supabaseResetPassword(resetEmail.trim());
+                    setResetStatus('Password reset link sent! Check your Gmail (and spam folder).');
+                  } catch (err) {
+                    setResetError(describeAuthError(err));
+                  } finally {
+                    setIsSendingReset(false);
+                  }
+                }}
+                className="space-y-3"
+              >
+                <div className="relative text-left">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="email"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    placeholder="name@gmail.com"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/[0.08] focus:outline-none rounded-2xl text-xs text-white placeholder-zinc-500 transition-all shadow-sm"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSendingReset}
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSendingReset ? 'Sending Link…' : 'Send Reset Link'}</span>
+                </button>
+              </form>
 
               <button
-                onClick={() => setShowForgotPassword(false)}
-                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all"
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setResetStatus(null);
+                  setResetError(null);
+                }}
+                className="w-full mt-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white text-xs font-bold transition-all"
               >
                 Back to Sign In
               </button>

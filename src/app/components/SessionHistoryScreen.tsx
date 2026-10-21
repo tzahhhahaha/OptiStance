@@ -1,15 +1,11 @@
 import React, { useState } from 'react';
 import {
   History,
-  Download,
-  Share2,
   Calendar,
   Clock,
   CheckCircle2,
   AlertCircle,
-  FileText,
   TrendingUp,
-  X
 } from 'lucide-react';
 import { PracticeSession } from '../types';
 
@@ -26,8 +22,7 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
   onBrowseLibrary
 }) => {
   const [selectedPoseFilter, setSelectedPoseFilter] = useState<string>('All');
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [exportCopied, setExportCopied] = useState(false);
+
 
   const posesInHistory = Array.from(new Set(sessions.map((s) => s.poseName)));
 
@@ -65,21 +60,7 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
     sessions.reduce((acc, curr) => acc + curr.durationSeconds, 0) / 60
   );
 
-  const handleCopyExport = () => {
-    const exportText = `OptiStance Coach Kinematic Report\nDate: ${new Date().toLocaleDateString()}\nTotal Sessions: ${
-      sessions.length
-    }\nAverage Accuracy: ${avgAccuracy}%\n\n` +
-      sessions
-        .map(
-          (s) =>
-            `• ${s.poseName}: ${s.accuracyScore}% Form | ICU Score: ${s.icuScore != null ? `${s.icuScore}/10` : 'Not measured'} | Feedback: ${s.feedbackSummary}`
-        )
-        .join('\n');
 
-    navigator.clipboard?.writeText(exportText);
-    setExportCopied(true);
-    setTimeout(() => setExportCopied(false), 2500);
-  };
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 md:px-8 py-6 pb-28 font-sans">
@@ -95,18 +76,11 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
               Session History &amp; Telemetry
             </h2>
             <p className="text-zinc-400 text-sm max-w-lg leading-relaxed">
-              Review your historical form calibrations, ICU compliance grade trends, and export verified records for your cheer coach.
+              Review your historical form calibrations, ICU compliance grade trends, and training session analytics.
             </p>
           </div>
 
-          <button
-            onClick={() => setShowExportModal(true)}
-            disabled={sessions.length === 0}
-            className="px-5 py-3 rounded-2xl bg-white text-black text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 active:scale-95 transition-all self-start md:self-auto disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white"
-          >
-            <Share2 className="w-4 h-4" />
-            <span>Coach Export</span>
-          </button>
+
         </div>
       </div>
 
@@ -265,78 +239,7 @@ export const SessionHistoryScreen: React.FC<SessionHistoryScreenProps> = ({
         })}
       </div>
 
-      {/* Coach Export Modal - Immersive UI */}
-      {showExportModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0d0d12]/95 rounded-3xl p-6 md:p-8 w-full max-w-lg shadow-[0_0_60px_rgba(0,0,0,0.9)] border border-white/10 backdrop-blur-2xl text-[#E0E0E6] animate-fade-in-up">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-                <Share2 className="w-5 h-5 text-indigo-400" />
-                <span>Coach Export Telemetry</span>
-              </h3>
-              <button
-                onClick={() => setShowExportModal(false)}
-                className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-              Generate a practice telemetry summary for your cheer coach review. ICU compliance is not certified by this report.
-            </p>
-
-            <div className="bg-white/[0.03] p-4 rounded-2xl border border-white/[0.08] text-xs font-mono text-zinc-300 max-h-48 overflow-y-auto space-y-1 mb-6">
-              <p className="font-bold text-indigo-300">[OPTISTANCE KINEMATIC REPORT]</p>
-              <p>Athlete Telemetry Summary</p>
-              <p>Total Recorded Reps: {sessions.length}</p>
-              <p>Mean Form Compliance: {avgAccuracy}%</p>
-              <p>ICU Passing Rate: {measuredIcuSessions.length ? `${Math.round((measuredIcuSessions.filter((session) => (session.icuScore ?? 0) >= 7).length / measuredIcuSessions.length) * 100)}%` : 'Not measured'}</p>
-              <div className="my-2 border-t border-dashed border-white/10" />
-              {sessions.map((s, idx) => (
-                <p key={idx}>
-                  #{idx + 1} {s.poseName}: {s.accuracyScore}% Form | ICU Score: {s.icuScore != null ? `${s.icuScore}/10` : 'Not measured'}
-                </p>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleCopyExport}
-                className="flex-1 py-3 px-4 rounded-2xl border border-white/10 text-zinc-300 hover:text-white text-xs font-bold hover:bg-white/5 transition-colors flex items-center justify-center gap-1.5"
-              >
-                {exportCopied ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <FileText className="w-4 h-4" />}
-                <span>{exportCopied ? 'Report Copied!' : 'Copy Summary'}</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  const blob = new Blob(
-                    [
-                      `Pose,Accuracy,ICU_Score,Timestamp,Feedback\n` +
-                        sessions
-                          .map((s) => `"${s.poseName}",${s.accuracyScore},${s.icuScore ?? ''},"${s.timestamp}","${s.feedbackSummary}"`)
-                          .join('\n')
-                    ],
-                    { type: 'text/csv' }
-                  );
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `OptiStance-Coach-Export-${Date.now()}.csv`;
-                  a.click();
-                  setShowExportModal(false);
-                }}
-                className="flex-1 py-3 px-4 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 transition-all flex items-center justify-center gap-1.5"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download CSV</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
-

@@ -109,10 +109,10 @@ describe('the athlete cannot grant themselves admin', () => {
 });
 
 describe('account recovery is honest', () => {
-  it('does not pretend to send a reset link', () => {
+  it('sends real recovery links via Supabase SMTP', () => {
     const auth = readFileSync('src/app/components/AuthScreen.tsx', 'utf8');
-    expect(auth).not.toMatch(/Send Link/i);
-    expect(auth).not.toMatch(/supabaseResetPassword/);
+    expect(auth).toMatch(/supabaseResetPassword/);
+    expect(auth).toMatch(/Reset Your Password/i);
   });
 
   it('offers one recovery entry point, not two', () => {

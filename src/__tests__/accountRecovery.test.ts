@@ -121,20 +121,12 @@ describe('supabaseCreateSupportTicket', () => {
 });
 
 describe('account recovery copy', () => {
-  it('no longer claims a reset link was emailed', () => {
-    // SMTP is not configured on this project, so any copy implying a delivered
-    // email is a lie the athlete will act on. Guard against it coming back.
+  it('renders a live password reset request form backed by Supabase SMTP', () => {
     const authScreen = readFileSync('src/app/components/AuthScreen.tsx', 'utf8');
 
-    expect(authScreen).not.toMatch(/Reset Link Dispatched/i);
-    expect(authScreen).not.toMatch(/sent recovery instructions/i);
-    expect(authScreen).toMatch(/no email service configured/i);
-  });
-
-  it('tells a locked-out athlete that an admin can reset the password', () => {
-    const authScreen = readFileSync('src/app/components/AuthScreen.tsx', 'utf8');
-
-    expect(authScreen).toMatch(/administrator/i);
+    expect(authScreen).toMatch(/Reset Your Password/i);
+    expect(authScreen).toMatch(/supabaseResetPassword/);
+    expect(authScreen).toMatch(/Send Reset Link/i);
   });
 
   it('the support form persists instead of faking a confirmation', () => {

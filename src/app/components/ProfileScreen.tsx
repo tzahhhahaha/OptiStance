@@ -20,7 +20,7 @@ import {
 import { UserProfile, Pose, PracticeSession, MASTERY_THRESHOLD, EditableProfileFields } from '../types';
 import { useResendVerification } from '../hooks/useResendVerification';
 import { useAthleteVerification } from '../hooks/useAthleteVerification';
-import { displayRoleLabel } from '../utils/profile';
+import { displayRoleLabel, calculateSkillLevel } from '../utils/profile';
 
 interface ProfileScreenProps {
   user: UserProfile;
@@ -322,6 +322,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     .reduce((total, achievement) => total + achievement.xpReward, 0);
   const honorsLevel = Math.floor(earnedXp / 500) + 1;
   const honorsTier = honorsLevel >= 4 ? 'Elite' : honorsLevel >= 2 ? 'Rising' : 'Rookie';
+  const skillLevel = calculateSkillLevel(poses, sessions);
 
   const filteredAchievements = achievements.filter((ach) => {
     if (achievementFilter === 'unlocked') return ach.unlocked;
@@ -366,14 +367,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
                   {user.name || 'Alex Morgan'}
                 </h1>
                 <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300">
                   {displayRoleLabel(user)}
                 </span>
+                <span className={`text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full border ${skillLevel.badgeClass}`}>
+                  {skillLevel.label}
+                </span>
               </div>
+
+              {user.specialty && (
+                <p className="text-xs text-indigo-200/90 italic font-medium mb-1">
+                  &ldquo;{user.specialty}&rdquo;
+                </p>
+              )}
 
               <p className="text-xs text-zinc-400 font-medium mb-2">
                 {user.email || 'athlete@optistance.app'}
@@ -524,7 +534,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
                     {athleteVerificationStatus === 'pending'
                       ? 'An administrator has paused your full access. You keep every Beginner pose. Contact support if you think this is a mistake.'
-                      : 'Unlock Intermediate and Advanced poses plus the full AI camera. You keep every Beginner pose either way, and this unlocks instantly — nobody has to approve it.'}
+                      : user.emailVerified === false
+                        ? 'Requirement: Confirm your email address above to unlock Intermediate & Advanced cheer stunts.'
+                        : 'Requirement met! Your email is verified. Tap below to unlock Intermediate & Advanced stunts.'}
                   </p>
                   {athleteVerificationNotice && (
                     <p className="text-[11px] text-emerald-300 mt-2 leading-relaxed">{athleteVerificationNotice}</p>
@@ -551,6 +563,34 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </div>
             </div>
           )}
+
+          {/* Skill Progression Tier Banner */}
+          <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-950/40 via-[#0d0d14]/90 to-purple-950/30 border border-white/10 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                <Trophy className="w-6 h-6 text-amber-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white">Cheer Skill Progression</h3>
+                  <span className={`text-[10px] uppercase font-black tracking-wider px-2.5 py-0.5 rounded-full border ${skillLevel.badgeClass}`}>
+                    {skillLevel.label}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-0.5">{skillLevel.description}</p>
+              </div>
+            </div>
+            <div className="text-left sm:text-right shrink-0">
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Mastery Requirement</p>
+              <p className="text-xs font-mono text-indigo-300 font-bold">
+                {skillLevel.level === 3
+                  ? 'Maximum Skill Level Achieved'
+                  : skillLevel.level === 2
+                    ? 'Goal: 6+ Mastered Poses & 85%+ Avg'
+                    : 'Goal: 3+ Mastered Poses & 75%+ Avg'}
+              </p>
+            </div>
+          </div>
 
           {/* Key Metric Highlights Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -955,7 +995,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             <div className="mb-5">
               <h3 className="text-lg font-black text-white">Edit Profile</h3>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Update how your name and cheer position appear in the app.
+                Update how your name and training motto appear in the app.
               </p>
             </div>
 
@@ -982,7 +1022,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   htmlFor="profile-edit-specialty"
                   className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5"
                 >
-                  Cheer Position
+                  Training Motto / Goal
                 </label>
                 <input
                   id="profile-edit-specialty"
@@ -990,11 +1030,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   value={editSpecialty}
                   onChange={(e) => setEditSpecialty(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white"
-                  placeholder="e.g. Top Flyer"
+                  placeholder="e.g. Clean lines, zero wobble"
                 />
                 <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
-                  Shown next to your name. This is separate from your account
-                  role, which is managed by your team.
+                  Your personal cheer motto or training focus. Displayed on your athlete profile.
                 </p>
               </div>
 

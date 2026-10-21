@@ -51,6 +51,14 @@ describe('PoseCard', () => {
     expect(screen.queryByText('Practice')).toBeNull();
   });
 
+  it('shows "Currently Unavailable" when locked by coach/admin', () => {
+    const pose = { ...makePose('Beginner'), isLocked: true };
+    renderCard({ isLocked: true, pose });
+    expect(screen.getAllByText('Currently Unavailable').length).toBeGreaterThan(0);
+    expect(screen.getByText('Locked by coach / admin')).toBeTruthy();
+    expect(screen.queryByText('Practice')).toBeNull();
+  });
+
   it('selects the pose on click when unlocked', () => {
     const props = renderCard();
     fireEvent.click(screen.getByRole('heading', { name: 'High V' }));

@@ -34,6 +34,7 @@ export interface Pose {
   practiceTips: PracticeTip[];
   masteryPercentage: number;
   imageUrl: string;
+  videoUrl?: string;
   points: number;
   idealAngles: Record<string, string>;
   commonMistakes: string[];
@@ -43,6 +44,8 @@ export interface Pose {
     lines: SkeletonLine[];
   };
   sampleCorrectionMessage: string;
+  /** Whether the coach/admin has temporarily locked this pose from athlete practice */
+  isLocked?: boolean;
 }
 
 export interface PracticeSession {
@@ -54,8 +57,12 @@ export interface PracticeSession {
   durationSeconds: number;
   corrections: string[];
   icuScore?: number;
+  icuTier?: string;
   measuredAngles?: Record<string, number>;
   feedbackSummary: string;
+  capturedImage?: string;
+  rawImage?: string;
+  baseLeg?: 'left' | 'right';
 }
 
 export interface AppSettings {

@@ -310,9 +310,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:translate-x-0.5 group-hover:text-white transition-all shrink-0" />
               </button>
 
-              {/* Change Password */}
-              <button
-                onClick={() => setShowPasswordModal(true)}
+              {/* Change Password - only available for registered accounts */}
+              {!user?.isGuest && (
+                <button
+                  onClick={() => setShowPasswordModal(true)}
                 className="w-full flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 active:scale-[0.98] transition-all group text-left border border-transparent hover:border-white/10"
               >
                 <div className="flex items-center gap-3.5">
@@ -326,6 +327,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </div>
                 <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:translate-x-0.5 group-hover:text-white transition-all" />
               </button>
+              )}
 
               {/* Notifications */}
               <div className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-colors">
@@ -558,6 +560,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </button>
               )}
               
+              {!user?.isGuest && (
               <button
                 onClick={() => setShowDeleteModal(true)}
                 className="w-full py-3 px-4 rounded-2xl border border-rose-500/30 text-rose-400 text-xs font-bold hover:bg-rose-500/10 active:scale-95 transition-all flex items-center justify-center gap-2"
@@ -565,6 +568,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Trash2 className="w-4 h-4" />
                 <span>{t('Delete Account & Telemetry')}</span>
               </button>
+              )}
             </div>
           </section>
         </div>
@@ -611,13 +615,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   htmlFor="settings-profile-specialty"
                   className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5"
                 >
-                  {t('Specialty')}
+                  {t('Training Motto / Goal')}
                 </label>
                 <input
                   id="settings-profile-specialty"
                   value={editSpecialty}
                   onChange={(e) => setEditSpecialty(e.target.value)}
-                  placeholder={t('All Levels')}
+                  placeholder='e.g. Clean lines, zero wobble'
                   className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
                 />
               </div>

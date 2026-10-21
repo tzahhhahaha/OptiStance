@@ -13,7 +13,13 @@ const mocks = vi.hoisted(() => {
   const from = vi.fn();
   const channelBuilder = {
     on: vi.fn(() => channelBuilder),
-    subscribe: vi.fn(() => 'SUBSCRIBED'),
+    subscribe: vi.fn((cb?: (status: string) => void) => {
+      if (typeof cb === 'function') cb('SUBSCRIBED');
+      return channelBuilder;
+    }),
+    track: vi.fn().mockResolvedValue({}),
+    untrack: vi.fn().mockResolvedValue({}),
+    presenceState: vi.fn(() => ({})),
   };
   const channel = vi.fn(() => channelBuilder);
   const removeChannel = vi.fn(() => Promise.resolve());
@@ -36,6 +42,8 @@ import {
   mapProfileRow,
   resolveStartupAuth,
   subscribeToVerification,
+  subscribeToOnlineAthletes,
+  trackAthletePresence,
   supabaseLogin,
   supabaseResendConfirmation,
   supabaseSignOut,
@@ -387,5 +395,61 @@ describe('subscribeToVerification', () => {
     unsubscribe();
     expect(mocks.channel).not.toHaveBeenCalled();
     expect(mocks.removeChannel).not.toHaveBeenCalled();
+  });
+});
+
+describe('trackAthletePresence', () => {
+  it('tracks user presence on online-athletes channel and untracks on cleanup', () => {
+    const cleanup = trackAthletePresence('u-test-123');
+
+    expect(mocks.channel).toHaveBeenCalledWith('online-athletes');
+    expect(mocks.channelBuilder.subscribe).toHaveBeenCalled();
+    expect(mocks.channelBuilder.track).toHaveBeenCalledWith({
+      userId: 'u-test-123',
+      onlineAt: expect.any(String),
+    });
+
+    cleanup();
+    expect(mocks.channelBuilder.untrack).toHaveBeenCalled();
+    expect(mocks.removeChannel).toHaveBeenCalledWith(mocks.channelBuilder);
+  });
+
+  it('is a no-op if userId is empty', () => {
+    const cleanup = trackAthletePresence('');
+    cleanup();
+    expect(mocks.channel).not.toHaveBeenCalled();
+  });
+});
+
+describe('subscribeToOnlineAthletes', () => {
+  it('listens for presence sync and invokes callback with unique user IDs', () => {
+    const onSync = vi.fn();
+    mocks.channelBuilder.presenceState.mockReturnValue({
+      conn1: [{ userId: 'u-1' }],
+      conn2: [{ userId: 'u-2' }, { userId: 'u-1' }],
+    });
+
+    const unsubscribe = subscribeToOnlineAthletes(onSync);
+
+    expect(mocks.channel).toHaveBeenCalledWith('online-athletes');
+    expect(mocks.channelBuilder.on).toHaveBeenCalledWith(
+      'presence',
+      { event: 'sync' },
+      expect.any(Function)
+    );
+    expect(mocks.channelBuilder.subscribe).toHaveBeenCalled();
+
+    // Trigger the presence sync callback
+    const syncCallback = (mocks.channelBuilder.on as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[0] === 'presence' && call[1]?.event === 'sync'
+    )?.[2] as () => void;
+
+    expect(syncCallback).toBeDefined();
+    syncCallback();
+
+    expect(onSync).toHaveBeenCalledWith(['u-1', 'u-2']);
+
+    unsubscribe();
+    expect(mocks.removeChannel).toHaveBeenCalledWith(mocks.channelBuilder);
   });
 });

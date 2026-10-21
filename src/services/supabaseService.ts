@@ -165,7 +165,24 @@ export const stuntService = {
       .select('*')
       .eq('is_archived', false)
       .order('created_at', { ascending: false });
-    return unwrap<Stunt[]>(data ?? [], error, 'fetch stunts');
+    const stunts = unwrap<Stunt[]>(data ?? [], error, 'fetch stunts');
+    try {
+      const stored = localStorage.getItem('optistance_locked_stunts');
+      if (stored) {
+        const lockedIds = new Set<string>(JSON.parse(stored));
+        return stunts.map((s) => ({
+          ...s,
+          is_locked:
+            Boolean(s.is_locked) ||
+            lockedIds.has(s.id) ||
+            (s.pose_key ? lockedIds.has(s.pose_key) : false) ||
+            lockedIds.has(s.name.toLowerCase().trim()),
+        }));
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return stunts;
   },
 
   async getStunt(stuntId: string): Promise<Stunt | null> {
@@ -195,10 +212,46 @@ export const stuntService = {
     await this.updateStunt(stuntId, { is_archived: true });
   },
 
-  /** Hard-delete – only safe for stunts with no historical sessions. */
+  /** Retrieve all archived stunts. */
+  async getArchivedStunts(): Promise<Stunt[]> {
+    const { data, error } = await supabase
+      .from('stunts')
+      .select('*')
+      .eq('is_archived', true)
+      .order('updated_at', { ascending: false });
+    return unwrap<Stunt[]>(data ?? [], error, 'fetch archived stunts');
+  },
+
+  /** Restore an archived stunt back to the active syllabus. */
+  async restoreStunt(stuntId: string): Promise<void> {
+    await this.updateStunt(stuntId, { is_archived: false });
+  },
+
+  /** Hard-delete – permanently remove stunt. */
   async deleteStunt(stuntId: string): Promise<void> {
     const { error } = await supabase.from('stunts').delete().eq('id', stuntId);
     unwrap(null, error, `delete stunt ${stuntId}`);
+  },
+
+  /** Lock or unlock a stunt to make it temporarily unavailable/available for practice. */
+  async toggleLock(stuntId: string, isLocked: boolean): Promise<void> {
+    try {
+      await this.updateStunt(stuntId, { is_locked: isLocked });
+    } catch (err) {
+      console.warn('[stuntService] Remote update of is_locked failed, falling back to local persistence:', err);
+    }
+    try {
+      const stored = localStorage.getItem('optistance_locked_stunts');
+      const set = new Set<string>(stored ? JSON.parse(stored) : []);
+      if (isLocked) {
+        set.add(stuntId);
+      } else {
+        set.delete(stuntId);
+      }
+      localStorage.setItem('optistance_locked_stunts', JSON.stringify([...set]));
+    } catch {
+      // ignore storage errors
+    }
   },
 };
 

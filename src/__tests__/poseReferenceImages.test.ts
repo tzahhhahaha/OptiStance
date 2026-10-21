@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAdminPoseImages } from '../app/utils/poseReferenceImages';
+import { applyAdminPoseImages, getBundledPoseImage } from '../app/utils/poseReferenceImages';
 import type { Pose } from '../app/types';
 
 const pose = (id: string, imageUrl: string): Pose =>
@@ -85,5 +85,46 @@ describe('applyAdminPoseImages', () => {
 
     expect(result[0].name).toBe('t-motion');
     expect(result[0].defaultSkeleton).toBe(library[0].defaultSkeleton);
+  });
+
+  it('ignores expired legacy Google URLs so bundled images are preserved', () => {
+    const result = applyAdminPoseImages(library, [
+      {
+        pose_key: 't-motion',
+        reference_image_url: 'https://lh3.googleusercontent.com/aida/AP1WRLtdvgNi1ZVZHfMBMys...',
+      },
+    ]);
+
+    // Should not overwrite bundled-1 with the dead Google link
+    expect(result).toBe(library);
+    expect(result[0].imageUrl).toBe('bundled-1');
+  });
+});
+
+describe('getBundledPoseImage', () => {
+  it('resolves all standard library poses including scorpion and low-v by pose_key', () => {
+    expect(getBundledPoseImage('t-motion')).toBe('/poses/t-motion.jpg');
+    expect(getBundledPoseImage('high-v')).toBe('/poses/high-v.jpg');
+    expect(getBundledPoseImage('low-v')).toBe('/poses/low-v.jpg');
+    expect(getBundledPoseImage('half-t')).toBe('/poses/half-t.jpg');
+    expect(getBundledPoseImage('liberty')).toBe('/poses/liberty.jpg');
+    expect(getBundledPoseImage('toe-touch')).toBe('/poses/toe-touch.jpg');
+    expect(getBundledPoseImage('arabesque')).toBe('/poses/arabesque.jpg');
+    expect(getBundledPoseImage('heel-stretch')).toBe('/poses/heel-stretch.jpg');
+    expect(getBundledPoseImage('scorpion')).toBe('/poses/scorpion.jpg');
+  });
+
+  it('resolves poses by display name with spaces and capitalization', () => {
+    expect(getBundledPoseImage(null, 'T-Motion')).toBe('/poses/t-motion.jpg');
+    expect(getBundledPoseImage(null, 'High V')).toBe('/poses/high-v.jpg');
+    expect(getBundledPoseImage(null, 'Low V')).toBe('/poses/low-v.jpg');
+    expect(getBundledPoseImage(null, 'Toe Touch')).toBe('/poses/toe-touch.jpg');
+    expect(getBundledPoseImage(null, 'Heel Stretch')).toBe('/poses/heel-stretch.jpg');
+    expect(getBundledPoseImage(null, 'Scorpion')).toBe('/poses/scorpion.jpg');
+  });
+
+  it('returns undefined for unknown stunts', () => {
+    expect(getBundledPoseImage('custom-routine')).toBeUndefined();
+    expect(getBundledPoseImage(null, 'Random Nonexistent Stunt')).toBeUndefined();
   });
 });

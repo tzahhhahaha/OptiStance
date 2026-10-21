@@ -20,6 +20,7 @@ import {
   supabaseSignUp,
   adminSetUserPassword,
   reviewVerification,
+  subscribeToOnlineAthletes,
   type User as DbUser,
 } from '../../../services/supabaseApi';
 import type { VerificationStatus } from '../../types';
@@ -35,13 +36,33 @@ interface Athlete {
   sessions: number;
   /** Real mean, or null when no session recorded a score. */
   avgAccuracy: number | null;
+  /** Last practice session timestamp, or null if never trained. */
+  lastSessionAt: string | null;
   isActive: boolean;
   isVerified: boolean;
   verificationStatus: VerificationStatus;
   joinDate: string;
 }
 
-type ScopeFilter = 'all' | 'active' | 'deactivated' | 'verified' | 'unverified';
+type ScopeFilter = 'all' | 'online' | 'active' | 'deactivated' | 'verified' | 'unverified';
+
+/** Format a last active practice session timestamp into a human-friendly relative label. */
+const formatLastActive = (lastSessionAt: string | null): string => {
+  if (!lastSessionAt) return 'Never practiced';
+  const timestamp = new Date(lastSessionAt).getTime();
+  if (isNaN(timestamp)) return 'Never practiced';
+  const diffMs = Date.now() - timestamp;
+  if (diffMs < 0) return 'Just now';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 30) return `${days}d ago`;
+  return new Date(lastSessionAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
 
 /** Badge styling + label for a verification state. */
 const VERIFICATION_PRESENTATION: Record<
@@ -54,13 +75,19 @@ const VERIFICATION_PRESENTATION: Record<
   rejected: { label: 'Access revoked', className: 'bg-rose-500/15 text-rose-300 border border-rose-500/30' },
 };
 
-const toAthlete = (user: DbUser, sessions: number, avgAccuracy: number | null): Athlete => ({
+const toAthlete = (
+  user: DbUser,
+  sessions: number,
+  avgAccuracy: number | null,
+  lastSessionAt: string | null = null
+): Athlete => ({
   id: user.id,
   name: user.fullName,
   email: user.email,
   role: user.role === 'SystemManager' ? 'admin' : 'athlete',
   sessions,
   avgAccuracy,
+  lastSessionAt,
   isActive: user.isActive,
   isVerified: user.isVerified,
   verificationStatus: user.verificationStatus ?? (user.isVerified ? 'verified' : 'unverified'),
@@ -69,6 +96,7 @@ const toAthlete = (user: DbUser, sessions: number, avgAccuracy: number | null): 
 
 export default function DarkAdminUsers() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** True when the roster loaded but nobody has ever trained. */
@@ -99,6 +127,15 @@ export default function DarkAdminUsers() {
 
   const [confirmRemove, setConfirmRemove] = useState<Athlete | null>(null);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToOnlineAthletes((ids) => {
+      setOnlineUserIds(new Set(ids));
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   const loadUsers = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -114,7 +151,12 @@ export default function DarkAdminUsers() {
       setAthletes(
         users.map((user) => {
           const stats = aggregates.get(user.id);
-          return toAthlete(user, stats?.sessions ?? 0, stats?.avgAccuracy ?? null);
+          return toAthlete(
+            user,
+            stats?.sessions ?? 0,
+            stats?.avgAccuracy ?? null,
+            stats?.lastSessionAt ?? null
+          );
         })
       );
       setHasAnyActivity(sessions.length > 0);
@@ -263,6 +305,8 @@ export default function DarkAdminUsers() {
 
   const matchesScope = (athlete: Athlete) => {
     switch (scope) {
+      case 'online':
+        return onlineUserIds.has(athlete.id);
       case 'active':
         return athlete.isActive;
       case 'deactivated':
@@ -283,12 +327,14 @@ export default function DarkAdminUsers() {
     return matchesTerm && matchesScope(a);
   });
 
+  const onlineCount = athletes.filter((a) => onlineUserIds.has(a.id)).length;
   const activeCount = athletes.filter((a) => a.isActive).length;
   const revokedCount = athletes.filter((a) => !a.isVerified).length;
 
   const SCOPES: { id: ScopeFilter; label: string; count: number }[] = [
     { id: 'all', label: 'All', count: athletes.length },
-    { id: 'active', label: 'Active', count: activeCount },
+    { id: 'online', label: 'Online', count: onlineCount },
+    { id: 'active', label: 'Active accounts', count: activeCount },
     { id: 'deactivated', label: 'Deactivated', count: athletes.length - activeCount },
     { id: 'verified', label: 'Full access', count: athletes.length - revokedCount },
     { id: 'unverified', label: 'Basic', count: revokedCount },
@@ -427,7 +473,7 @@ export default function DarkAdminUsers() {
                     <th className="px-6 py-4 text-left font-bold text-white uppercase tracking-wider text-xs">Pose Access</th>
                     <th className="px-6 py-4 text-left font-bold text-white uppercase tracking-wider text-xs">Sessions</th>
                     <th className="px-6 py-4 text-left font-bold text-white uppercase tracking-wider text-xs">Accuracy</th>
-                    <th className="px-6 py-4 text-left font-bold text-white uppercase tracking-wider text-xs">Status</th>
+                    <th className="px-6 py-4 text-left font-bold text-white uppercase tracking-wider text-xs">Activity & Status</th>
                     <th className="px-6 py-4 text-center font-bold text-white uppercase tracking-wider text-xs">Actions</th>
                   </tr>
                 </thead>
@@ -474,8 +520,8 @@ export default function DarkAdminUsers() {
                               className="text-zinc-500 text-xs"
                               title={
                                 hasAnyActivity
-                                  ? 'This athlete has sessions, but none recorded a score.'
-                                  : 'No practice sessions have been recorded yet.'
+                                   ? 'This athlete has sessions, but none recorded a score.'
+                                   : 'No practice sessions have been recorded yet.'
                               }
                             >
                               Not scored
@@ -493,19 +539,33 @@ export default function DarkAdminUsers() {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <div className="flex items-center gap-1">
-                            {athlete.isActive ? (
-                              <>
-                                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                                <span className="text-emerald-400 text-xs font-bold">Active</span>
-                              </>
-                            ) : (
-                              <>
-                                <AlertCircle className="w-4 h-4 text-zinc-500" />
-                                <span className="text-zinc-400 text-xs font-bold">Deactivated</span>
-                              </>
-                            )}
-                          </div>
+                          {!athlete.isActive ? (
+                            <div className="flex items-center gap-1.5">
+                              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                              <span className="text-rose-400 text-xs font-bold">Deactivated</span>
+                            </div>
+                          ) : onlineUserIds.has(athlete.id) ? (
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="relative flex h-2.5 w-2.5">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                                </span>
+                                <span className="text-emerald-400 text-xs font-bold">Online</span>
+                              </div>
+                              <p className="text-[11px] text-zinc-400">Active now</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex rounded-full h-2 w-2 bg-zinc-500" />
+                                <span className="text-zinc-400 text-xs font-semibold">Offline</span>
+                              </div>
+                              <p className="text-[11px] text-zinc-500" title={athlete.lastSessionAt ?? undefined}>
+                                {athlete.lastSessionAt ? `Active ${formatLastActive(athlete.lastSessionAt)}` : 'Never practiced'}
+                              </p>
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           {/* Hover-reveal only on pointer devices. Always visible
@@ -561,13 +621,22 @@ export default function DarkAdminUsers() {
                       <p className="font-bold text-white truncate">{athlete.name}</p>
                       <p className="text-xs text-zinc-400 truncate">{athlete.email}</p>
                     </div>
-                    {athlete.isActive ? (
-                      <span className="shrink-0 inline-flex items-center gap-1 text-emerald-400 text-xs font-bold">
-                        <CheckCircle className="w-3.5 h-3.5" /> Active
+                    {!athlete.isActive ? (
+                      <span className="shrink-0 inline-flex items-center gap-1 text-zinc-400 text-xs font-bold">
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-400" /> Deactivated
+                      </span>
+                    ) : onlineUserIds.has(athlete.id) ? (
+                      <span className="shrink-0 inline-flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                        </span>
+                        Online
                       </span>
                     ) : (
-                      <span className="shrink-0 inline-flex items-center gap-1 text-zinc-400 text-xs font-bold">
-                        <AlertCircle className="w-3.5 h-3.5" /> Deactivated
+                      <span className="shrink-0 inline-flex items-center gap-1.5 text-zinc-400 text-xs font-medium">
+                        <span className="inline-flex rounded-full h-2 w-2 bg-zinc-600" />
+                        {athlete.lastSessionAt ? formatLastActive(athlete.lastSessionAt) : 'Offline'}
                       </span>
                     )}
                   </div>
@@ -599,6 +668,11 @@ export default function DarkAdminUsers() {
                         </>
                       )}
                     </span>
+                    {athlete.lastSessionAt && (
+                      <span className="truncate">
+                        Last: <span className="font-bold text-zinc-300">{formatLastActive(athlete.lastSessionAt)}</span>
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex gap-2 pt-1">
@@ -644,9 +718,28 @@ export default function DarkAdminUsers() {
           >
             <div className="p-8 border-b border-white/[0.08] flex items-center justify-between sticky top-0 bg-[#0d0d12]/95 backdrop-blur-2xl">
               <div className="min-w-0">
-                <h3 id="athlete-detail-title" className="text-2xl font-black text-white truncate">
-                  {selectedAthlete.name}
-                </h3>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <h3 id="athlete-detail-title" className="text-2xl font-black text-white truncate">
+                    {selectedAthlete.name}
+                  </h3>
+                  {!selectedAthlete.isActive ? (
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-bold">
+                      Deactivated
+                    </span>
+                  ) : onlineUserIds.has(selectedAthlete.id) ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                      </span>
+                      Online now
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-full bg-white/[0.05] border border-white/10 text-zinc-400 text-xs font-medium">
+                      Offline
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-zinc-400 mt-1 truncate">{selectedAthlete.email}</p>
               </div>
               <button
@@ -660,7 +753,7 @@ export default function DarkAdminUsers() {
 
             <div className="p-8 space-y-6">
               {/* Stats Grid */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="bg-white/[0.02] rounded-xl p-4 border border-white/[0.08]">
                   <p className="text-xs text-zinc-500 font-bold mb-2">Total Sessions</p>
                   <p className="text-2xl font-black text-white">{selectedAthlete.sessions}</p>
@@ -673,6 +766,12 @@ export default function DarkAdminUsers() {
                     ) : (
                       `${selectedAthlete.avgAccuracy}%`
                     )}
+                  </p>
+                </div>
+                <div className="bg-white/[0.02] rounded-xl p-4 border border-white/[0.08]">
+                  <p className="text-xs text-zinc-500 font-bold mb-2">Last Practice</p>
+                  <p className="text-sm font-bold text-white">
+                    {formatLastActive(selectedAthlete.lastSessionAt)}
                   </p>
                 </div>
                 <div className="bg-white/[0.02] rounded-xl p-4 border border-white/[0.08]">

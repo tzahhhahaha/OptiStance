@@ -338,4 +338,13 @@ describe('aggregateSessionsByAthlete', () => {
   it('returns an empty map for no sessions', () => {
     expect(aggregateSessionsByAthlete([]).size).toBe(0);
   });
+
+  it('identifies the most recent session date as lastSessionAt', () => {
+    const totals = aggregateSessionsByAthlete([
+      { user_id: 'a', overall_accuracy: 80, session_date: iso(15) },
+      { user_id: 'a', overall_accuracy: 95, session_date: iso(24) },
+      { user_id: 'a', overall_accuracy: 85, session_date: iso(20) },
+    ]);
+    expect(totals.get('a')?.lastSessionAt).toBe(iso(24));
+  });
 });

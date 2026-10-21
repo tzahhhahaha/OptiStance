@@ -16,12 +16,52 @@ export interface PoseImageSource {
   reference_image_url?: string | null;
 }
 
+/** Check if a URL points to the expired temporary Google URLs seeded in early builds. */
+export const isLegacyGoogleUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  return url.includes('lh3.googleusercontent.com') || url.includes('googleusercontent.com/aida');
+};
+
 /**
- * Map pose slug -> reference image, ignoring rows that cannot contribute one.
- *
- * Blank strings are treated as "no image" rather than as an image URL, because
- * clearing the field in the admin form stores `''` or null rather than
- * deleting the column.
+ * Known bundled images for library poses in /public/poses/*.
+ * Serves as the zero-network fallback for the athlete gallery and the admin syllabus.
+ */
+export const BUNDLED_POSE_IMAGES: Record<string, string> = {
+  't-motion': '/poses/t-motion.jpg',
+  'high-v': '/poses/high-v.jpg',
+  'low-v': '/poses/low-v.jpg',
+  'half-t': '/poses/half-t.jpg',
+  'liberty': '/poses/liberty.jpg',
+  'toe-touch': '/poses/toe-touch.jpg',
+  'arabesque': '/poses/arabesque.jpg',
+  'heel-stretch': '/poses/heel-stretch.jpg',
+  'scorpion': '/poses/scorpion.jpg',
+};
+
+const slugifyKey = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+/**
+ * Resolve the local bundled image asset for a stunt based on its pose key or name.
+ */
+export function getBundledPoseImage(poseKey?: string | null, name?: string | null): string | undefined {
+  if (poseKey) {
+    const pk = slugifyKey(poseKey);
+    if (BUNDLED_POSE_IMAGES[pk]) return BUNDLED_POSE_IMAGES[pk];
+  }
+  if (name) {
+    const slug = slugifyKey(name);
+    if (BUNDLED_POSE_IMAGES[slug]) return BUNDLED_POSE_IMAGES[slug];
+  }
+  return undefined;
+}
+
+/**
+ * Map pose slug -> reference image, ignoring rows that cannot contribute one
+ * and ignoring legacy expired Google URLs that fail in production.
  */
 function imageByPoseKey(stunts: PoseImageSource[]): Map<string, string> {
   const map = new Map<string, string>();
@@ -29,6 +69,8 @@ function imageByPoseKey(stunts: PoseImageSource[]): Map<string, string> {
     const key = stunt.pose_key?.trim();
     const url = stunt.reference_image_url?.trim();
     if (!key || !url) continue;
+    // Skip expired seed URLs that fail to load
+    if (isLegacyGoogleUrl(url)) continue;
     map.set(key, url);
   }
   return map;

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, BarChart3, Users, Zap, Settings, LogOut, AlertTriangle, ChevronRight, ArrowUpRight, Menu, RefreshCw } from 'lucide-react';
+import { X, BarChart3, Users, BookOpen, Settings, LogOut, AlertTriangle, ChevronRight, ArrowUpRight, Menu, RefreshCw } from 'lucide-react';
 import DarkAdminUsers from './admin/DarkAdminUsers';
 import DarkAdminContent from './admin/DarkAdminContent';
 import DarkAdminAnalytics from './admin/DarkAdminAnalytics';
@@ -19,7 +19,7 @@ type AdminTab = 'dashboard' | 'users' | 'content' | 'analytics' | 'settings';
 const TABS: { id: AdminTab; label: string; icon: typeof BarChart3 }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { id: 'users', label: 'Athletes', icon: Users },
-  { id: 'content', label: 'Stunts', icon: Zap },
+  { id: 'content', label: 'Library', icon: BookOpen },
   { id: 'analytics', label: 'Analytics', icon: ArrowUpRight },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -341,9 +341,13 @@ function DarkAdminDashboard({
             : null,
     },
     {
-      label: 'Full Pose Access',
-      value: roster ? `${roster.withFullAccess}/${roster.totalAccounts}` : null,
-      hint: roster ? `${roster.basicAccess} on Basic` : null,
+      label: 'Athlete Pose Access',
+      value: roster ? `${roster.withFullAccess}/${roster.totalAccounts} Athletes` : null,
+      hint: roster
+        ? roster.basicAccess > 0
+          ? `${roster.withFullAccess} Full Access · ${roster.basicAccess} on Basic`
+          : 'All athletes have Full Access'
+        : null,
     },
   ];
 
@@ -390,7 +394,7 @@ function DarkAdminDashboard({
               onClick={() => onNavigate('content')}
               className="w-full py-2 px-3 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-sm font-medium transition-all border border-rose-500/30"
             >
-              + Create Stunt
+              + Add to Library
             </button>
             <button
               type="button"

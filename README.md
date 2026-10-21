@@ -12,6 +12,8 @@ A mobile-first web application that uses AI-powered pose detection to help cheer
 
 ### 🎯 Real-time Pose Detection
 - **MediaPipe Integration** - 33-point body landmark tracking
+- **Hand Tracking** - 21-point finger and palm landmarks for up to two hands
+- **Offline Analysis** - Pose and hand models are bundled locally; hand inference is throttled to preserve camera responsiveness
 - **Live Feedback** - Instant accuracy scores and skeleton overlay
 - **Smart Fallback** - Demo mode when camera unavailable
 
@@ -333,15 +335,13 @@ const poses: Pose[] = [
 
 ### Phase 3: Enhanced Features
 - [ ] Drill library with videos
-- [ ] Social sharing
 - [ ] Leaderboards
 - [ ] Push notifications
 
 ### Phase 4: Advanced AI
-- [ ] Custom pose creation
-- [ ] Coach comparison mode
-- [ ] Frame-by-frame analysis
+- [ ] Custom pose creations
 - [ ] Voice feedback
+- [ ] 
 
 ---
 

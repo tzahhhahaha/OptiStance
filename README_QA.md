@@ -10,11 +10,14 @@ Web QA
 - Test `Upload Image` from `HomePage` and from `CameraView` (upload a small image).
 - Confirm uploaded URL logs in console or configure Firebase Storage to verify.
 - Toggle `VITE_USE_POSE_WORKER=true` to enable worker and ensure pose results show.
+- Verify the body skeleton and hand/finger overlays appear and update during movement.
+- Verify pose and hand tracking still initialize with network access disabled.
 
 Android (Capacitor)
 - Run `npm run build:mobile` then `npx cap add android`.
 - Open Android Studio: `npx cap open android` and build on emulator/device.
-- Verify camera permission in native app and test live pose detection.
+- Verify camera permission in native app and test live body and hand landmark detection.
+- Disable network access after installation and confirm bundled pose and hand models still load.
 
 iOS (Capacitor)
 - On macOS run `npx cap add ios` then `npx cap open ios`.

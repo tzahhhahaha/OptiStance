@@ -1,7 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Adaptive-icon background plate. Matches the mid-stop of the violet
-         gradient baked into the PNG launcher icons so the two do not clash
-         when Android composites foreground over background. -->
-    <color name="ic_launcher_background">#7C3AED</color>
+    <color name="ic_launcher_background">#8c64c7</color>
 </resources>

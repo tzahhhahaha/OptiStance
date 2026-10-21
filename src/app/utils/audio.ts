@@ -35,14 +35,22 @@ export const audioCoach = {
   },
   speakCue: (message: string, enabled = true) => {
     if (!enabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const UtteranceCtor =
+      window.SpeechSynthesisUtterance ||
+      (globalThis as unknown as { SpeechSynthesisUtterance?: typeof SpeechSynthesisUtterance }).SpeechSynthesisUtterance;
+    if (!UtteranceCtor) return;
 
-    const utterance = new SpeechSynthesisUtterance(message);
-    utterance.lang = 'en-US';
-    utterance.rate = 1;
-    utterance.pitch = 1;
+    try {
+      const utterance = new UtteranceCtor(message);
+      utterance.lang = 'en-US';
+      utterance.rate = 1;
+      utterance.pitch = 1;
 
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // Ignore browsers/runtimes blocking speech
+    }
   },
   playSuccessBeep: safeBeep(880, 180),
   playWarningBeep: safeBeep(420, 220),

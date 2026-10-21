@@ -1,6 +1,6 @@
 /**
- * Copies the MediaPipe Pose runtime into `public/mediapipe/pose/` so the app
- * never fetches it from a CDN.
+ * Copies the MediaPipe Pose and Hands runtimes into `public/mediapipe/` so the
+ * app never fetches model or WASM files from a CDN.
  *
  * Why this exists
  *   The pose engine used to be pulled from cdn.jsdelivr.net at runtime via
@@ -14,9 +14,9 @@
  *   into `dist/` and Capacitor then bundles into the native project.
  *
  * Model choice
- *   AICameraScreen and poseWorker both set modelComplexity: 1, which selects
+ *   AICameraScreen and poseWorker both set modelComplexity: 0, which selects
  *   pose_landmark_lite.tflite. The 'full' (6 MB) and 'heavy' (27 MB) models are
- *   deliberately NOT copied - they are only used at complexity 2/3 and would
+ *   deliberately NOT copied - they are used at complexity 1/2 and would
  *   add ~34 MB to the APK for no benefit. If modelComplexity is ever raised,
  *   add the matching .tflite to MODELS below or detection will fail to load.
  *
@@ -39,6 +39,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = join(root, 'node_modules', '@mediapipe', 'pose');
 const target = join(root, 'public', 'mediapipe', 'pose');
+const handsSource = join(root, 'node_modules', '@mediapipe', 'hands');
+const handsTarget = join(root, 'public', 'mediapipe', 'hands');
 
 /** Runtime glue the WASM loader requests through `locateFile`. */
 const RUNTIME = [
@@ -64,6 +66,19 @@ const RUNTIME = [
 const MODELS = ['pose_landmark_lite.tflite'];
 
 const files = [...RUNTIME, ...MODELS];
+
+/** Runtime assets requested by the MediaPipe Hands loader. */
+const HANDS_RUNTIME = [
+  'hands_solution_packed_assets_loader.js',
+  'hands_solution_packed_assets.data',
+  'hands_solution_simd_wasm_bin.js',
+  'hands_solution_simd_wasm_bin.wasm',
+  'hands_solution_simd_wasm_bin.data',
+  'hands_solution_wasm_bin.js',
+  'hands_solution_wasm_bin.wasm',
+  'hands.binarypb',
+  'hand_landmark_lite.tflite',
+];
 
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -112,7 +127,66 @@ const main = async () => {
   );
 
   console.log(`[mediapipe] Vendored ${files.length} files (${mb(total)}) -> public/mediapipe/pose`);
-  console.log(`[mediapipe] v${pkg.version} | model: pose_landmark_lite.tflite (modelComplexity 1)`);
+  console.log(`[mediapipe] v${pkg.version} | model: pose_landmark_lite.tflite (modelComplexity 0)`);
+
+  if (!existsSync(handsSource)) {
+    console.error(
+      `\n[mediapipe] Cannot find ${handsSource}\n` +
+        `[mediapipe] Run "npm install" before building.\n`
+    );
+    process.exit(1);
+  }
+
+  const availableHands = new Set(await readdir(handsSource));
+  const requiredHands = new Set([
+    ...HANDS_RUNTIME.filter((file) => file.endsWith('.wasm')),
+    'hands_solution_packed_assets.data',
+    'hands.binarypb',
+    'hand_landmark_lite.tflite',
+  ]);
+  const missingHands = [...requiredHands].filter((file) => !availableHands.has(file));
+
+  if (missingHands.length) {
+    console.error(
+      `\n[mediapipe] @mediapipe/hands is missing required runtime files:\n` +
+        missingHands.map((file) => `  - ${file}`).join('\n') +
+        `\n[mediapipe] Check node_modules/@mediapipe/hands and update HANDS_RUNTIME in\n` +
+        `[mediapipe] ${join('scripts', 'vendor-mediapipe.mjs')}.\n`
+    );
+    process.exit(1);
+  }
+
+  await mkdir(handsTarget, { recursive: true });
+
+  let handsTotal = 0;
+  for (const file of HANDS_RUNTIME) {
+    if (!availableHands.has(file)) continue;
+    const from = join(handsSource, file);
+    await copyFile(from, join(handsTarget, file));
+    handsTotal += (await stat(from)).size;
+  }
+
+  const handsPackage = JSON.parse(await readFile(join(handsSource, 'package.json'), 'utf8'));
+  await writeFile(
+    join(handsTarget, 'VENDORED.json'),
+    JSON.stringify(
+      {
+        package: '@mediapipe/hands',
+        version: handsPackage.version,
+        files: HANDS_RUNTIME,
+        bytes: handsTotal,
+      },
+      null,
+      2
+    )
+  );
+
+  console.log(
+    `[mediapipe] Vendored ${HANDS_RUNTIME.length} hand tracking files (${mb(handsTotal)}) -> public/mediapipe/hands`
+  );
+  console.log(
+    `[mediapipe] v${handsPackage.version} | model: hand_landmark_lite.tflite (maxNumHands 2)`
+  );
 };
 
 main().catch((err) => {

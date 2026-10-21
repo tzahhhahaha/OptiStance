@@ -50,6 +50,7 @@ export interface Stunt {
   target_points: number;
   mastery_threshold: number;
   is_archived: boolean;
+  is_locked?: boolean;
   created_at: string;
   updated_at: string;
 }

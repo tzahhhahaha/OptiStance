@@ -129,19 +129,24 @@ CREATE POLICY "Admins can delete pose images"
 INSERT INTO public.stunts
   (pose_key, name, category, difficulty_tier, reference_image_url)
 VALUES
-  ('t-motion', 'T-Motion', 'pom_motion', 'beginner', 'https://lh3.googleusercontent.com/aida/AP1WRLtdvgNi1ZVZHfMBMys_LSZk_v9lssaxwkN3vuvkrR4RjY9k-C7Vw-LBKyLxzFWVX_EoBpM4T5mHYETOF_Kx0N85PQ-R8o9Um6-v99g31U7UWJbGNmKc3IZPwlQSnsS3PzcQ156VXIHE-RQn-5G7Ag5P0ciqtC7gX8MFC47OlE3fPcTdfC5En_tFQaiDNIIbztEGAouXzvHxBDnSWofuqoVj430gFEHu2hLj0QaumpFCXFMhDvwE7JszMQ'),
-  ('high-v', 'High V', 'pom_motion', 'beginner', 'https://lh3.googleusercontent.com/aida/AP1WRLtLDIqveNFWJolAhMnHzrJdPTZtXjFkp3UHwarqlyTUlY1yDHFFvJtI5RoTB-U3U3ZaQ8xQnS9myaoG5wh7VMBC4WsSMKD3ZSsVg0PYmjGYUzutFe7XsEz8wL5hVndgW7w6e4iwVoV8ZY2jLlDJUXk19rVYu2MoYtaNtiG6es6nb7Zfp0qNwuhGLt_0R4CeDD1YG0Y6XE3C2eww_k0NWbsZvdLzeLgb2xXGO7sDmIsVmk_Ikft411my1A'),
-  ('half-t', 'Half-T', 'pom_motion', 'beginner', 'https://lh3.googleusercontent.com/aida/AP1WRLubIdCuB_p61rpv-9NS9WA14073gjJVQV8kyjCnynlHPQ_V5txECaKmp3kuGFpD2eJY9NwRT2AsEMGcnv4mT_xQH0u0VVlTP60qDm8eb2AdoNtrU0EMtORsIZuXfVyvOVp8Qi5IzZBRXbTQJTsTO4Bd_iYLotkIcARXRZlbulzuKDFUFS2mtPIYAfLqiBf2QB7dCPhzLeWOmMPN-omA8w1tWvLM2ilwA4hMOzt1ZHAfrzKzL6yJe5DXA6g'),
-  ('liberty', 'Liberty', 'stunt', 'intermediate', 'https://lh3.googleusercontent.com/aida-public/AB6AXuCUcl56_A7zfok-a9F75sAwf6ISLbllV6eTPFBZR_VP7xn8MYh6GmHudSm2Vwcabvgtgvef2iAs7eMfiigTQDsuzSyYMMU-Eaaxp5TOj-UeCii2ig7C_FIXi_J7DbZRgCQdGkMDAn83oM3zY_XxVkyc_vK19_mQhRdOj8gLv44dKv8ZRQh_RYg01qB1SDhhYz1V4cb5FcljezfrudsLepB51YCAVCJXFXXytEspfOm1rZBkrTBULute'),
-  ('toe-touch', 'Toe Touch', 'jump', 'advanced', 'https://lh3.googleusercontent.com/aida-public/AB6AXuC4f4-XM04Nh_vtE89eqzbrorhjaX2Of8IOIPRBqRUWItNidDhk_5ySyd8CLuRZOGft2AY6oKLlvw52sEg1P3Q3qEI76kWVqDW14mNKyogfJqhVMX4KJc5l_srPDGx9VZ8A92AF-Tzk_rHez4QU8V7bbh4TZiAdiOep8_gCOyMq2ntW7omLlBONO-n_pg4eOHq9eXxSUmeMjOe5I3czHVCYXocTUPvObdxZgFrpSg90WCcSbByppoi5'),
-  ('arabesque', 'Arabesque', 'stunt', 'intermediate', 'https://lh3.googleusercontent.com/aida/AP1WRLtdvgNi1ZVZHfMBMys_LSZk_v9lssaxwkN3vuvkrR4RjY9k-C7Vw-LBKyLxzFWVX_EoBpM4T5mHYETOF_Kx0N85PQ-R8o9Um6-v99g31U7UWJbGNmKc3IZPwlQSnsS3PzcQ156VXIHE-RQn-5G7Ag5P0ciqtC7gX8MFC47OlE3fPcTdfC5En_tFQaiDNIIbztEGAouXzvHxBDnSWofuqoVj430gFEHu2hLj0QaumpFCXFMhDvwE7JszMQ'),
-  ('heel-stretch', 'Heel Stretch', 'stunt', 'advanced', 'https://lh3.googleusercontent.com/aida/AP1WRLtLDIqveNFWJolAhMnHzrJdPTZtXjFkp3UHwarqlyTUlY1yDHFFvJtI5RoTB-U3U3ZaQ8xQnS9myaoG5wh7VMBC4WsSMKD3ZSsVg0PYmjGYUzutFe7XsEz8wL5hVndgW7w6e4iwVoV8ZY2jLlDJUXk19rVYu2MoYtaNtiG6es6nb7Zfp0qNwuhGLt_0R4CeDD1YG0Y6XE3C2eww_k0NWbsZvdLzeLgb2xXGO7sDmIsVmk_Ikft411my1A')
+  ('t-motion', 'T-Motion', 'pom_motion', 'beginner', '/poses/t-motion.jpg'),
+  ('high-v', 'High V', 'pom_motion', 'beginner', '/poses/high-v.jpg'),
+  ('half-t', 'Half-T', 'pom_motion', 'beginner', '/poses/half-t.jpg'),
+  ('liberty', 'Liberty', 'stunt', 'intermediate', '/poses/liberty.jpg'),
+  ('toe-touch', 'Toe Touch', 'jump', 'advanced', '/poses/toe-touch.jpg'),
+  ('arabesque', 'Arabesque', 'stunt', 'intermediate', '/poses/arabesque.jpg'),
+  ('heel-stretch', 'Heel Stretch', 'stunt', 'advanced', '/poses/heel-stretch.jpg'),
+  ('scorpion', 'Scorpion', 'stunt', 'advanced', '/poses/scorpion.jpg')
 
 ON CONFLICT (name) DO UPDATE
   SET pose_key             = EXCLUDED.pose_key,
       category             = EXCLUDED.category,
       difficulty_tier      = EXCLUDED.difficulty_tier,
-      reference_image_url  = COALESCE(public.stunts.reference_image_url, EXCLUDED.reference_image_url),
+      reference_image_url  = CASE
+        WHEN public.stunts.reference_image_url IS NULL OR public.stunts.reference_image_url = '' OR public.stunts.reference_image_url LIKE '%googleusercontent.com%'
+        THEN EXCLUDED.reference_image_url
+        ELSE public.stunts.reference_image_url
+      END,
       updated_at           = CURRENT_TIMESTAMP;
 
 -- ---------------------------------------------------------------------------

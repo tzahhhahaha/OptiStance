@@ -109,3 +109,19 @@ export const getCameraConstraints = (
   },
   audio: false,
 });
+
+/** Explain browser camera API restrictions before attempting to open a stream. */
+export const getBrowserCameraAvailabilityError = (
+  isSecureContext: boolean,
+  hasGetUserMedia: boolean
+): string | null => {
+  if (!isSecureContext) {
+    return 'The browser does not consider this page secure, so it blocks camera access. Open the trusted HTTPS address directly in your browser (not in an embedded preview), use localhost on this device, or run the installed app.';
+  }
+
+  if (!hasGetUserMedia) {
+    return 'This browser does not provide camera access. Open the app in a supported browser or use the installed app.';
+  }
+
+  return null;
+};

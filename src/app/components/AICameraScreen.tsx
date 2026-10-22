@@ -37,7 +37,13 @@ import {
 } from '../scoring/drawTelemetry';
 import { JumpPeakDetector } from '../scoring/jumpPeak';
 import { audioCoach } from '../utils/audio';
-import { getRecommendedCameraFacing, getCameraConstraints, isCapacitorNative, CameraFacing } from '../utils/device';
+import {
+  getRecommendedCameraFacing,
+  getCameraConstraints,
+  getBrowserCameraAvailabilityError,
+  isCapacitorNative,
+  CameraFacing,
+} from '../utils/device';
 import { isPoseLocked, visiblePosesFor } from '../utils/access';
 import {
   mediapipeHandsLocateFile,
@@ -814,6 +820,18 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
   const startCamera = async () => {
     if (!useWebcam) return;
     setCameraError(null);
+    if (!isNative) {
+      const availabilityError = getBrowserCameraAvailabilityError(
+        window.isSecureContext,
+        typeof navigator.mediaDevices?.getUserMedia === 'function'
+      );
+      if (availabilityError) {
+        setCameraError(availabilityError);
+        setUseWebcam(false);
+        return;
+      }
+    }
+
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());

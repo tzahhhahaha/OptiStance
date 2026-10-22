@@ -282,41 +282,19 @@ export default function DarkAdminContent() {
     setIsTogglingLock(stunt.id);
     setFormError(null);
 
-    // Optimistically toggle state immediately so the button icon switches instantly
-    setStunts((prev) =>
-      prev.map((s) => (s.id === stunt.id ? { ...s, isLocked: nextLocked } : s))
-    );
-    if (selectedStunt?.id === stunt.id) {
-      setSelectedStunt((prev) => (prev ? { ...prev, isLocked: nextLocked } : null));
-    }
-
-    // Persist to local storage locked set so athlete library and camera immediately see it
-    try {
-      const stored = localStorage.getItem('optistance_locked_stunts');
-      const set = new Set<string>(stored ? JSON.parse(stored) : []);
-      if (nextLocked) {
-        set.add(stunt.id);
-        if (stunt.poseKey) set.add(stunt.poseKey);
-        set.add(stunt.name.toLowerCase().trim());
-      } else {
-        set.delete(stunt.id);
-        if (stunt.poseKey) set.delete(stunt.poseKey);
-        set.delete(stunt.name.toLowerCase().trim());
-      }
-      localStorage.setItem('optistance_locked_stunts', JSON.stringify([...set]));
-    } catch {
-      // ignore storage errors
-    }
-
-    // Dispatch custom event to notify App.tsx immediately
-    window.dispatchEvent(
-      new CustomEvent('optistance:stunt-lock', {
-        detail: { stuntId: stunt.id, stuntName: stunt.name, poseKey: stunt.poseKey, isLocked: nextLocked },
-      })
-    );
-
     try {
       await supabaseToggleStuntLock(stunt.id, nextLocked);
+      setStunts((prev) =>
+        prev.map((s) => (s.id === stunt.id ? { ...s, isLocked: nextLocked } : s))
+      );
+      if (selectedStunt?.id === stunt.id) {
+        setSelectedStunt((prev) => (prev ? { ...prev, isLocked: nextLocked } : null));
+      }
+      window.dispatchEvent(
+        new CustomEvent('optistance:stunt-lock', {
+          detail: { stuntId: stunt.id, stuntName: stunt.name, poseKey: stunt.poseKey, isLocked: nextLocked },
+        })
+      );
       setActionMessage(
         nextLocked
           ? `"${stunt.name}" is now locked (temporarily unavailable to athletes).`
@@ -324,13 +302,12 @@ export default function DarkAdminContent() {
       );
       setTimeout(() => setActionMessage(null), 3500);
     } catch (e) {
-      console.warn('Backend update failed, maintaining local lock state:', e);
-      setActionMessage(
-        nextLocked
-          ? `"${stunt.name}" is now locked.`
-          : `"${stunt.name}" is now unlocked.`
+      console.error('Failed to save stunt availability:', e);
+      setFormError(
+        e instanceof Error
+          ? `Could not update "${stunt.name}": ${e.message}`
+          : `Could not update "${stunt.name}". Check the network and admin permissions, then retry.`
       );
-      setTimeout(() => setActionMessage(null), 3500);
     } finally {
       setIsTogglingLock(null);
     }

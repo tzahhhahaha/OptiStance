@@ -35,14 +35,19 @@ VITE_SUPABASE_ANON_KEY=your-anon-key-here
 VITE_SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 ```
 
-## Step 4: Initialize the Database Schema
+## Step 4: Initialize the Database Schema and Migrations
 
 1. In Supabase dashboard, go to **SQL Editor**
 2. Click **New Query**
 3. Copy the entire contents of `supabase/schema.sql`
 4. Paste into the SQL editor
 5. Click **Run**
-6. Wait for the schema to be created (should see success messages)
+6. Apply every file in `supabase/migrations` in filename order, from oldest to newest, using a separate SQL Editor query for each file.
+   These migrations add the admin policies required for lock updates and enable
+   the `stunts` table in the `supabase_realtime` publication for cross-device
+   lock refresh. Do not skip earlier migrations; later policies depend on helper
+   functions defined in them.
+7. Wait for the schema and migrations to complete successfully.
 
 ## Step 4b: Enable Automatic User Sync (REQUIRED for signup)
 

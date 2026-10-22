@@ -758,6 +758,10 @@ export const supabaseToggleStuntLock = async (stuntId: string, isLocked: boolean
   await stuntService.toggleLock(stuntId, isLocked);
 };
 
+export const supabaseSubscribeToStuntLockChanges = (
+  onChange: (stunt: Pick<Stunt, 'id' | 'name' | 'pose_key' | 'is_locked'>) => void
+): (() => void) => stuntService.subscribeToLockChanges(onChange);
+
 export const supabaseGetSessions = async (): Promise<SessionWithRelations[]> => {
   return sessionService.getAllSessions();
 };

@@ -3,13 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => {
   const from = vi.fn();
   const auth = { getSession: vi.fn() };
-  return { from, auth };
+  const channel = {
+    on: vi.fn(),
+    subscribe: vi.fn(),
+  };
+  channel.on.mockReturnValue(channel);
+  channel.subscribe.mockReturnValue(channel);
+  return { from, auth, channel, removeChannel: vi.fn().mockResolvedValue('ok') };
 });
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => ({
     from: mocks.from,
     auth: mocks.auth,
+    channel: vi.fn(() => mocks.channel),
+    removeChannel: mocks.removeChannel,
   })),
 }));
 
@@ -20,6 +28,7 @@ import {
   supabaseRestoreStunt,
   supabasePermanentlyDeleteStunt,
   supabaseToggleStuntLock,
+  supabaseSubscribeToStuntLockChanges,
 } from '../services/supabaseApi';
 
 describe('stuntService - lock, archive and restore', () => {
@@ -33,6 +42,10 @@ describe('stuntService - lock, archive and restore', () => {
       order: vi.fn().mockResolvedValue({ data: [], error: null }),
       update: vi.fn().mockReturnThis(),
       delete: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: { id: 's1', is_locked: true },
+        error: null,
+      }),
     };
     queryChain.then = vi.fn((resolve) => resolve({ data: [], error: null })) as any;
     mocks.from.mockReturnValue(queryChain);
@@ -84,33 +97,54 @@ describe('stuntService - lock, archive and restore', () => {
     expect(queryChain.eq).toHaveBeenCalledWith('id', 's1');
   });
 
-  it('toggles lock state to true or false for temporary pose availability control', async () => {
-    queryChain.eq = vi.fn().mockResolvedValue({ error: null });
-    
-    // Lock pose
+  it('persists a lock only after Supabase returns the updated row', async () => {
     await stuntService.toggleLock('s1', true);
     expect(mocks.from).toHaveBeenCalledWith('stunts');
     expect(queryChain.update).toHaveBeenCalledWith(
       expect.objectContaining({ is_locked: true })
     );
     expect(queryChain.eq).toHaveBeenCalledWith('id', 's1');
+    expect(queryChain.select).toHaveBeenCalledWith('id, is_locked');
+    expect(queryChain.maybeSingle).toHaveBeenCalled();
+  });
 
-    // Unlock pose
+  it('supports unlocking a stunt', async () => {
+    queryChain.maybeSingle.mockResolvedValue({ data: { id: 's1', is_locked: false }, error: null });
     await stuntService.toggleLock('s1', false);
     expect(queryChain.update).toHaveBeenCalledWith(
       expect.objectContaining({ is_locked: false })
     );
   });
 
+  it('surfaces Supabase lock update errors without persisting a local lock', async () => {
+    const storageSet = vi.spyOn(Storage.prototype, 'setItem');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    queryChain.maybeSingle.mockResolvedValue({ data: null, error: new Error('permission denied') });
+
+    await expect(stuntService.toggleLock('s1', true)).rejects.toThrow('permission denied');
+    expect(storageSet).not.toHaveBeenCalledWith('optistance_locked_stunts', expect.any(String));
+    consoleError.mockRestore();
+    storageSet.mockRestore();
+  });
+
+  it('surfaces a filtered zero-row lock update', async () => {
+    queryChain.maybeSingle.mockResolvedValue({ data: null, error: null });
+
+    await expect(stuntService.toggleLock('s1', true)).rejects.toThrow(
+      'The stunt lock was not saved'
+    );
+  });
+
   it('exposes supabaseApi wrappers for archive, restore, lock, and permanent delete', async () => {
-    const updateResult = Promise.resolve({ error: null });
     const deleteResult = Promise.resolve({ error: null });
     const orderResult = Promise.resolve({ data: [], error: null });
 
-    queryChain.eq = vi.fn((field) => {
+    queryChain.eq.mockImplementation((field) => {
       if (field === 'is_archived') return queryChain;
-      return updateResult;
+      return queryChain;
     });
+    queryChain.then = vi.fn((resolve) => resolve({ data: null, error: null })) as any;
+    queryChain.maybeSingle.mockResolvedValue({ data: { id: 's1', is_locked: true }, error: null });
     queryChain.order = vi.fn().mockReturnValue(orderResult);
     queryChain.delete = vi.fn(() => ({ eq: vi.fn().mockReturnValue(deleteResult) })) as any;
 
@@ -121,5 +155,29 @@ describe('stuntService - lock, archive and restore', () => {
     await supabasePermanentlyDeleteStunt('s1');
 
     expect(mocks.from).toHaveBeenCalledWith('stunts');
+  });
+
+  it('subscribes to stunt lock changes and returns an unsubscribe function', async () => {
+    const onChange = vi.fn();
+    let onPayload: ((payload: { new: Record<string, unknown> }) => void) | undefined;
+    mocks.channel.on.mockImplementation((_event, _filter, callback) => {
+      onPayload = callback;
+      return mocks.channel;
+    });
+
+    const unsubscribe = supabaseSubscribeToStuntLockChanges(onChange);
+    onPayload?.({
+      new: { id: 's1', name: 'High V', pose_key: 'high-v', is_locked: true },
+    });
+
+    expect(onChange).toHaveBeenCalledWith({
+      id: 's1',
+      name: 'High V',
+      pose_key: 'high-v',
+      is_locked: true,
+    });
+    unsubscribe();
+    await Promise.resolve();
+    expect(mocks.removeChannel).toHaveBeenCalledWith(mocks.channel);
   });
 });

@@ -235,11 +235,21 @@ export const stuntService = {
 
   /** Lock or unlock a stunt to make it temporarily unavailable/available for practice. */
   async toggleLock(stuntId: string, isLocked: boolean): Promise<void> {
-    try {
-      await this.updateStunt(stuntId, { is_locked: isLocked });
-    } catch (err) {
-      console.warn('[stuntService] Remote update of is_locked failed, falling back to local persistence:', err);
+    const { data, error } = await supabase
+      .from('stunts')
+      .update({ is_locked: isLocked, updated_at: new Date().toISOString() })
+      .eq('id', stuntId)
+      .select('id, is_locked')
+      .maybeSingle();
+    const updated = unwrap<{ id: string; is_locked: boolean } | null>(
+      data,
+      error,
+      `update stunt lock ${stuntId}`
+    );
+    if (!updated) {
+      throw new Error('The stunt lock was not saved. Verify admin access and database policies, then retry.');
     }
+
     try {
       const stored = localStorage.getItem('optistance_locked_stunts');
       const set = new Set<string>(stored ? JSON.parse(stored) : []);
@@ -252,6 +262,40 @@ export const stuntService = {
     } catch {
       // ignore storage errors
     }
+  },
+
+  subscribeToLockChanges(
+    onChange: (stunt: Pick<Stunt, 'id' | 'name' | 'pose_key' | 'is_locked'>) => void
+  ) {
+    const channel = supabase
+      .channel('stunt-lock-changes')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stunts' }, (payload) => {
+        const row = payload.new as Partial<Stunt>;
+        if (
+          typeof row.id !== 'string' ||
+          typeof row.name !== 'string' ||
+          typeof row.is_locked !== 'boolean'
+        ) {
+          return;
+        }
+        onChange({
+          id: row.id,
+          name: row.name,
+          pose_key: row.pose_key ?? null,
+          is_locked: row.is_locked,
+        });
+      })
+      .subscribe((status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('[stuntService] Realtime lock subscription unavailable:', error ?? status);
+        }
+      });
+
+    return () => {
+      void supabase.removeChannel(channel).catch((error) => {
+        console.warn('[stuntService] Failed to close realtime lock subscription:', error);
+      });
+    };
   },
 };
 

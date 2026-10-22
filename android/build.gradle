@@ -22,6 +22,8 @@ allprojects {
         google()
         mavenCentral()
     }
+    // Redirect build outputs out of OneDrive to prevent Windows file-locking failures during compilation
+    layout.buildDirectory.set(new File(System.getProperty("java.io.tmpdir"), "cheerpose-build/" + project.name))
 }
 
 task clean(type: Delete) {

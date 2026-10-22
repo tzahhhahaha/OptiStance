@@ -37,6 +37,7 @@ import {
 } from '../scoring/drawTelemetry';
 import { JumpPeakDetector } from '../scoring/jumpPeak';
 import { audioCoach } from '../utils/audio';
+import { hapticFeedback } from '../utils/haptics';
 import {
   getRecommendedCameraFacing,
   getCameraConstraints,
@@ -690,6 +691,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
                   stableHoldStartRef.current = Date.now();
                 } else if (Date.now() - stableHoldStartRef.current >= 1200) {
                   stableHoldStartRef.current = null;
+                  void hapticFeedback.holdMilestoneSuccess();
                   triggerCapture();
                 }
               } else {
@@ -704,6 +706,9 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
             setDetectedPoseName(nextDetectedName);
           }
           if (nextAccuracy !== lastCapturedAccuracyRef.current) {
+            if (targetPose && nextAccuracy >= 80 && (lastCapturedAccuracyRef.current ?? 0) < 80) {
+              void hapticFeedback.targetPoseHit();
+            }
             lastCapturedAccuracyRef.current = nextAccuracy;
             setAccuracy(nextAccuracy);
           }
@@ -1008,7 +1013,10 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
       countdownIntervalRef.current = setInterval(() => {
         setCountdown((prev) => {
           if (prev === null) return null;
-          if (prev > 1) audioCoach.playWarningBeep();
+          if (prev > 1) {
+            audioCoach.playWarningBeep();
+            void hapticFeedback.countdownTick();
+          }
           return prev - 1;
         });
       }, 1000);
@@ -1025,6 +1033,7 @@ export const AICameraScreen: React.FC<AICameraScreenProps> = ({
         countdownIntervalRef.current = null;
       }
       setCountdown(null);
+      void hapticFeedback.holdMilestoneSuccess();
       executeSnapshot();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

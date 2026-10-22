@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'rea
 import { createPortal } from 'react-dom';
 import { Camera, ShieldCheck } from 'lucide-react';
 import { Header } from './components/Header';
-import { BottomNavBar, TabType } from './components/BottomNavBar';import { NavigationDrawer } from './components/NavigationDrawer';
+import { BottomNavBar, TabType } from './components/BottomNavBar';
+import { NavigationDrawer } from './components/NavigationDrawer';
+import { useServiceWorkerUpdate } from './hooks/useServiceWorkerUpdate';
+import { ServiceWorkerUpdateBanner } from './components/ServiceWorkerUpdateBanner';
 import { PoseLibraryScreen } from './components/PoseLibraryScreen';
 import { PoseDetailScreen } from './components/PoseDetailScreen';
 import { SessionHistoryScreen } from './components/SessionHistoryScreen';
@@ -14,7 +17,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { INITIAL_POSES } from './data/poses';
 import { Pose, PracticeSession, AppSettings, UserProfile, MASTERY_THRESHOLD, EditableProfileFields } from './types';
-import { supabase } from '../services/supabaseService';
+import { isSupabaseConfigured, supabase } from '../services/supabaseService';
 import { getPendingSessionCount, queuePracticeSession, syncPendingSessions } from '../services/offlineSync';
 import {
   getCurrentUser,
@@ -27,6 +30,7 @@ import {
   mergePracticeSessions,
   supabaseGetStunts,
   supabaseGetArchivedStunts,
+  supabaseSubscribeToStuntLockChanges,
   supabaseUpdateProfile
 } from '../services/supabaseApi';
 import {
@@ -200,6 +204,7 @@ const readLibraryForAccount = (accountId: string | null | undefined): Pose[] => 
 };
 
 export default function App() {
+  const { isUpdateAvailable, reloadToUpdate, dismissUpdate } = useServiceWorkerUpdate();
   const [currentTab, setCurrentTab] = useState<TabType | 'admin'>('library');
   const [selectedPose, setSelectedPose] = useState<Pose | null>(null);
   const [activeCameraPose, setActiveCameraPose] = useState<Pose | null>(null);
@@ -509,12 +514,30 @@ export default function App() {
     window.addEventListener('optistance:stunt-lock', handleLockEvent);
     window.addEventListener('optistance:stunt-archive', handleArchiveEvent);
     window.addEventListener('optistance:stunt-restore', handleRestoreEvent);
+
+    const unsubscribeLockChanges =
+      isAuthenticated && isSupabaseConfigured
+        ? supabaseSubscribeToStuntLockChanges((stunt) => {
+            window.dispatchEvent(
+              new CustomEvent('optistance:stunt-lock', {
+                detail: {
+                  stuntId: stunt.id,
+                  stuntName: stunt.name,
+                  poseKey: stunt.pose_key,
+                  isLocked: stunt.is_locked,
+                },
+              })
+            );
+          })
+        : () => {};
+
     return () => {
       window.removeEventListener('optistance:stunt-lock', handleLockEvent);
       window.removeEventListener('optistance:stunt-archive', handleArchiveEvent);
       window.removeEventListener('optistance:stunt-restore', handleRestoreEvent);
+      unsubscribeLockChanges();
     };
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     // Only pull when the library is actually on screen, so no athlete pays for
@@ -1289,6 +1312,12 @@ export default function App() {
 
             {/* Note: Camera tab triggers activeCameraPose fullscreen overlay */}
           </main>
+
+          <ServiceWorkerUpdateBanner
+            isUpdateAvailable={isUpdateAvailable}
+            onUpdate={reloadToUpdate}
+            onDismiss={dismissUpdate}
+          />
 
           <BottomNavBar
             currentTab={currentTab}

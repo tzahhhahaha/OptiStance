@@ -1,15 +1,30 @@
-
 import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
 import "./styles/index.css";
 
 import { App as CapApp } from '@capacitor/app';
 
-// Initialize Capacitor native app
+// Initialize Capacitor native app & PWA service worker
 if (typeof window !== "undefined") {
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      void navigator.serviceWorker.register('/sw.js');
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((registration) => {
+          registration.addEventListener('updatefound', () => {
+            const installing = registration.installing;
+            if (installing) {
+              installing.addEventListener('statechange', () => {
+                if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                  window.dispatchEvent(new CustomEvent('optistance:sw-update-available'));
+                }
+              });
+            }
+          });
+        })
+        .catch((err) => {
+          console.warn('Service worker registration failed:', err);
+        });
     });
   }
 
@@ -33,4 +48,3 @@ if (typeof window !== "undefined") {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
-  

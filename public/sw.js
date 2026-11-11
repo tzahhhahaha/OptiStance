@@ -97,7 +97,7 @@ self.addEventListener('fetch', (event) => {
         const fresh = await network;
         return (
           fresh ||
-          new Response('OptiStance is offline and has not been cached yet.', {
+          new Response('Optistance is offline and has not been cached yet.', {
             status: 503,
             headers: { 'Content-Type': 'text/plain; charset=utf-8' },
           })

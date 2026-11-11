@@ -1,6 +1,6 @@
 {
-  "name": "OptiStance",
-  "short_name": "OptiStance",
+  "name": "Optistance",
+  "short_name": "Optistance",
   "description": "Real-time cheer pose analysis with offline practice tracking.",
   "start_url": "/",
   "scope": "/",

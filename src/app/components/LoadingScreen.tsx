@@ -43,7 +43,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ message }) => (  <
 
       <div className="text-center">
         <h1 className="text-sm font-black tracking-[0.25em] uppercase text-white mb-2">
-          OptiStance
+          Optistance
         </h1>
         <p className="text-xs text-zinc-400 font-medium">
           {message || 'Starting up'}

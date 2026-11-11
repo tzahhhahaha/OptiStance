@@ -370,7 +370,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <div className="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-3">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-200/90 leading-relaxed">
-                    {t('Notifications are blocked in your browser or device settings. Allow notifications for OptiStance in your site/device settings to enable practice reminders.')}
+                    {t('Notifications are blocked in your browser or device settings. Allow notifications for Optistance in your site/device settings to enable practice reminders.')}
                   </p>
                 </div>
               )}
@@ -569,7 +569,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {t('Privacy & Security')}
             </h2>
             <p className="text-xs text-zinc-400 mb-5 relative z-10 leading-relaxed">
-              {t('OptiStance is committed to maintaining the highest standards of athletic biometric & kinematic protection.')}
+              {t('Optistance is committed to maintaining the highest standards of athletic biometric & kinematic protection.')}
             </p>
 
             {/* ISO 25010 Compliance Card */}
@@ -624,7 +624,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   className="w-full py-3.5 px-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 hover:text-white text-xs font-bold active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                 >
                   <LogOut className="w-4 h-4 text-zinc-400" />
-                  <span>{t('Log Out of OptiStance')}</span>
+                  <span>{t('Log Out of Optistance')}</span>
                 </button>
               )}
               
@@ -728,7 +728,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <div className="bg-[#0d0d12]/95 text-[#E0E0E6] rounded-3xl p-6 md:p-8 w-full max-w-lg shadow-[0_0_60px_rgba(0,0,0,0.9)] border border-white/10 backdrop-blur-2xl max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-white">
-                {showDpaModal ? 'Data Processing Agreement' : 'OptiStance Privacy Policy'}
+                {showDpaModal ? 'Data Processing Agreement' : 'Optistance Privacy Policy'}
               </h3>
               <button
                 onClick={() => {
@@ -742,7 +742,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
             <div className="overflow-y-auto text-xs text-zinc-300 space-y-3 pr-2 leading-relaxed">
               <p>
-                <strong className="text-white">1. Athletic Pose Telemetry:</strong> All video frames analyzed by OptiStance are processed client-side with MediaPipe inference models. Raw camera frames are never retained on remote servers without explicit coach export consent.
+                <strong className="text-white">1. Athletic Pose Telemetry:</strong> All video frames analyzed by Optistance are processed client-side with MediaPipe inference models. Raw camera frames are never retained on remote servers without explicit coach export consent.
               </p>
               <p>
                 <strong className="text-white">2. ICU Scoring Standards:</strong> Joint angles (coronal, sagittal, and transverse planes) are measured against International Cheer Union scoring heuristics for educational and training progression only.

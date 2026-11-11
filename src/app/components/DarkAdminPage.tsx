@@ -168,7 +168,7 @@ export function DarkAdminPage({ onBack, isAdmin, userName = 'Admin', userRole = 
           <div className="p-6 border-b border-white/[0.05]">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h1 className="text-xl font-black text-white tracking-tight">OptiStances</h1>
+                <h1 className="text-xl font-black text-white tracking-tight">Optistance</h1>
                 <p className="text-xs text-zinc-500 font-medium">Admin Console</p>
               </div>
               <button

@@ -16,7 +16,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  title = 'OptiStance',
+  title = 'Optistance',
   onOpenMenu,
   onOpenDrawer,
   onOpenProfile,
@@ -50,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="font-extrabold text-base md:text-lg leading-tight tracking-tight text-white flex items-center gap-2">
-                  <span className="truncate">{title === 'OptiStance' ? title.toUpperCase() : t(title)}</span>
+                  <span className="truncate">{title === 'Optistance' ? title.toUpperCase() : t(title)}</span>
                 </h1>
               </div>
             </div>

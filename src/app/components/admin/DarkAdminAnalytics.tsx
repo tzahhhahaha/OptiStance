@@ -319,7 +319,7 @@ export default function DarkAdminAnalytics() {
   const exportCsv = () => {
     if (!sessions) return;
     const lines: (string | number | null)[][] = [
-      ['OptiStance analytics export', new Date().toISOString()],
+      ['Optistance analytics export', new Date().toISOString()],
       ['Period', PERIOD_LABELS[period]],
       [],
       ['Metric', 'Value'],

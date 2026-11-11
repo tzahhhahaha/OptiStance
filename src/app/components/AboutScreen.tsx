@@ -36,7 +36,7 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
 
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-          <span className="text-[11px] font-extrabold tracking-widest text-zinc-400 uppercase">About OptiStance</span>
+          <span className="text-[11px] font-extrabold tracking-widest text-zinc-400 uppercase">About Optistance</span>
         </div>
         </div>
       </header>
@@ -50,10 +50,10 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
             <span>Platform Overview</span>
           </div>
           <h2 className="text-2xl font-black text-white mb-3 tracking-tight">
-            About OptiStance
+            About Optistance
           </h2>
           <p className="text-sm md:text-base text-zinc-400 leading-relaxed max-w-2xl">
-            OptiStance is engineered for high-intensity cheerleading telemetry and stunt safety. Born from the need to bridge the gap between traditional coaching and modern motion tracking, it provides a comprehensive real-time biomechanical analysis suite to perfect form, ensure flyer safety, and hit routine milestones flawlessly.
+            Optistance is engineered for high-intensity cheerleading telemetry and stunt safety. Born from the need to bridge the gap between traditional coaching and modern motion tracking, it provides a comprehensive real-time biomechanical analysis suite to perfect form, ensure flyer safety, and hit routine milestones flawlessly.
           </p>
         </section>
 
@@ -152,7 +152,7 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
       {/* Footer */}
       <footer className="py-4 text-center bg-[#0d0d12]/60 border-t border-white/[0.06] mt-auto">
         <p className="text-xs text-zinc-500 flex items-center justify-center gap-1.5 font-medium">
-          Made with <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500" /> by OptiStance Athletics
+          Made with <Heart className="w-3.5 h-3.5 fill-rose-500 text-rose-500" /> by Optistance Athletics
         </p>
       </footer>
     </div>

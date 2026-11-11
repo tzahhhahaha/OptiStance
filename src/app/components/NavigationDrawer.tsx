@@ -84,7 +84,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
     },
     {
       id: 'about',
-      label: 'About OptiStance',
+      label: 'About Optistance',
       description: 'Platform technology & ICU compliance',
       icon: <Info className="w-4 h-4" />
     }
@@ -262,7 +262,7 @@ export const NavigationDrawer: React.FC<NavigationDrawerProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto mb-4">
               <AlertTriangle className="w-6 h-6" />
             </div>
-            <h3 className="text-base font-bold text-white mb-1">{t('Sign Out of OptiStance?')}</h3>
+            <h3 className="text-base font-bold text-white mb-1">{t('Sign Out of Optistance?')}</h3>
             <p className="text-xs text-zinc-400 mb-6 leading-relaxed">
               {t('Your offline training telemetry and pose history will remain safely stored on this device.')}
             </p>

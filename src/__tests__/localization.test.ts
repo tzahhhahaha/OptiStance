@@ -11,7 +11,7 @@ describe('localization', () => {
 
   it('translates known interface text and preserves unknown text', () => {
     expect(translate('Settings & Privacy', 'Spanish (ES)')).toBe('Configuración y privacidad');
-    expect(translate('OptiStance', 'French (FR)')).toBe('OptiStance');
+    expect(translate('Optistance', 'French (FR)')).toBe('Optistance');
     expect(translate('Untranslated product term', 'Japanese (JP)')).toBe('Untranslated product term');
     expect(translate('Language', 'English (US)')).toBe('Language');
   });

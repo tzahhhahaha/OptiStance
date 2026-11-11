@@ -298,7 +298,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       // Driven by the real library size. This used to be hardcoded to 8 while
       // the library only ships 7 poses, so the badge could never unlock and the
       // progress bar was stuck at 87%.
-      description: `Master all ${librarySize} poses in the OptiStance syllabus`,
+      description: `Master all ${librarySize} poses in the Optistance syllabus`,
       category: 'mastery',
       tier: 'diamond',
       icon: '🌟',

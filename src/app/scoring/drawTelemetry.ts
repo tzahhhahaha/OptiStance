@@ -297,7 +297,7 @@ export function createBrandedScorecard(
       // App Title & Pose Name
       ctx.fillStyle = '#ffffff';
       ctx.font = `bold ${Math.max(14, Math.round(canvas.width / 32))}px sans-serif`;
-      ctx.fillText(`OptiStance • ${poseName}`, 16, img.height + bannerHeight * 0.42);
+      ctx.fillText(`Optistance • ${poseName}`, 16, img.height + bannerHeight * 0.42);
 
       // Coach Cue
       ctx.fillStyle = '#a1a1aa';

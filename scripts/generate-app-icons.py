@@ -1,118 +1,132 @@
 #!/usr/bin/env python3
 """
-Generate the OptiStance app icon set from the uploaded branding asset.
+Generate the OptiStance app icon set matching the gradient "O" brand mark.
 
-This script processes the master icon image into:
+Design: diagonal indigo -> purple -> rose gradient (`from-indigo-500 via-purple-500
+to-rose-500`) with a centered white circular core, matching Header.tsx,
+NavigationDrawer.tsx, and AuthScreen.tsx.
+
+Outputs:
+  - Master assets:               resources/{fullbleed,squircle,circle,adaptive_foreground}_master.png
   - Android legacy icons:        mipmap-<density>/ic_launcher.png (+ _round)
   - Android adaptive foreground: mipmap-<density>/ic_launcher_foreground.png
+  - Android background color:    android/app/src/main/res/values/ic_launcher_background.xml
+  - iOS app icon:                ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png
   - Web & PWA icons:             public/icons/... & public/favicon-32.png (+ favicon.ico)
-  - Color resources:             android/app/src/main/res/values/ic_launcher_background.xml
 """
 
 import os
-from collections import deque
 from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE_PATH = os.path.join(ROOT, 'resources', 'app-icon-source.jpg')
-if not os.path.exists(SOURCE_PATH):
-    # Fallback to user uploaded path if not yet in resources
-    SOURCE_PATH = r'C:\Users\Jeamuel Amado\.gemini\antigravity\brain\76e02f83-c97c-43e0-9bf8-fe431ff3af55\.user_uploaded\media_1792581441719_82606876.jpg'
+
+# Tailwind palette stops matching `bg-gradient-to-tr from-indigo-500 via-purple-500 to-rose-500`
+INDIGO_500 = (99, 102, 241)
+PURPLE_500 = (168, 85, 247)
+ROSE_500 = (244, 63, 94)
+
+# Header.tsx uses w-9 h-9 (36px) with a w-3.5 h-3.5 (14px) core => 14/36 ≈ 0.39
+CORE_DOT_RATIO = 14.0 / 36.0
+MASTER_SIZE = 1024
+
+
+def _lerp(a: int, b: int, t: float) -> int:
+    return int(round(a + (b - a) * t))
+
+
+def _gradient_rgba(t: float) -> tuple[int, int, int, int]:
+    if t <= 0.5:
+        u = t * 2.0
+        return (
+            _lerp(INDIGO_500[0], PURPLE_500[0], u),
+            _lerp(INDIGO_500[1], PURPLE_500[1], u),
+            _lerp(INDIGO_500[2], PURPLE_500[2], u),
+            255,
+        )
+    u = (t - 0.5) * 2.0
+    return (
+        _lerp(PURPLE_500[0], ROSE_500[0], u),
+        _lerp(PURPLE_500[1], ROSE_500[1], u),
+        _lerp(PURPLE_500[2], ROSE_500[2], u),
+        255,
+    )
+
+
+def render_o_icon(
+    size: int = MASTER_SIZE,
+    shape: str = 'squircle',
+    dot_ratio: float = CORE_DOT_RATIO,
+) -> Image.Image:
+    """Render an antialiased gradient 'O' icon at `size`x`size`."""
+    scale = 2
+    hi = size * scale
+
+    grad = Image.new('RGBA', (hi, hi))
+    px = grad.load()
+    denom = float(2 * (hi - 1))
+    for y in range(hi):
+        inv_y = hi - 1 - y
+        for x in range(hi):
+            # `to-tr`: bottom-left (0, hi-1) -> 0.0, top-right (hi-1, 0) -> 1.0
+            px[x, y] = _gradient_rgba((x + inv_y) / denom)
+
+    if shape == 'fullbleed':
+        plate = grad
+    else:
+        mask = Image.new('L', (hi, hi), 0)
+        mdraw = ImageDraw.Draw(mask)
+        if shape == 'circle':
+            mdraw.ellipse([0, 0, hi - 1, hi - 1], fill=255)
+        elif shape == 'squircle':
+            mdraw.rounded_rectangle([0, 0, hi - 1, hi - 1], radius=hi // 3, fill=255)
+        else:
+            raise ValueError(f"Unsupported icon shape: {shape}")
+
+        plate = Image.new('RGBA', (hi, hi), (0, 0, 0, 0))
+        plate.paste(grad, (0, 0), mask)
+
+    dot_d = int(round(hi * dot_ratio))
+    offset = (hi - dot_d) // 2
+    draw = ImageDraw.Draw(plate)
+    draw.ellipse([offset, offset, offset + dot_d, offset + dot_d], fill=(255, 255, 255, 255))
+
+    return plate.resize((size, size), Image.Resampling.LANCZOS)
+
 
 def build_masters():
-    print(f"Loading source from: {SOURCE_PATH}")
-    # 1. Resize to a 1024x1024 square. The source is 1024x902 where elements
-    # were vertically compressed by ~1.13x. Resizing to 1:1 square restores
-    # the circular lotus/head geometry to its intended 1:1 circular proportions.
-    raw_img = Image.open(SOURCE_PATH).resize((1024, 1024), Image.Resampling.LANCZOS).convert('RGBA')
-    w, h = raw_img.size
-    pixels = raw_img.load()
+    fullbleed = render_o_icon(MASTER_SIZE, shape='fullbleed', dot_ratio=CORE_DOT_RATIO)
+    squircle = render_o_icon(MASTER_SIZE, shape='squircle', dot_ratio=CORE_DOT_RATIO)
+    circle = render_o_icon(MASTER_SIZE, shape='circle', dot_ratio=CORE_DOT_RATIO)
+    # Adaptive icon foreground (108dp canvas, safe zone ~66% center)
+    adaptive_fg = render_o_icon(MASTER_SIZE, shape='fullbleed', dot_ratio=CORE_DOT_RATIO * 0.66)
+    # PWA maskable icon (80% safe zone circle)
+    maskable = render_o_icon(MASTER_SIZE, shape='fullbleed', dot_ratio=CORE_DOT_RATIO * 0.80)
+    return squircle, circle, adaptive_fg, fullbleed, maskable
 
-    # 2. Identify outer white corner pixels using flood-fill from 4 corners
-    visited = set()
-    q = deque([(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)])
-    for pt in q:
-        visited.add(pt)
-
-    while q:
-        x, y = q.popleft()
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in visited:
-                r, g, b, a = pixels[nx, ny]
-                if r > 230 and g > 230 and b > 230:
-                    visited.add((nx, ny))
-                    q.append((nx, ny))
-
-    # 3. Create full-bleed master: corner pixels filled with background gradient
-    c0 = (136, 98, 201)  # Bottom-left violet
-    c1 = (173, 126, 228)  # Top-right violet
-    fullbleed = raw_img.copy()
-    fb_pix = fullbleed.load()
-    for x, y in visited:
-        t = (x + (1023 - y)) / 2046.0
-        r = int(c0[0] + (c1[0] - c0[0]) * t)
-        g = int(c0[1] + (c1[1] - c0[1]) * t)
-        b = int(c0[2] + (c1[2] - c0[2]) * t)
-        fb_pix[x, y] = (r, g, b, 255)
-
-    # 4. Create antialiased squircle master (rounded rectangle with radius ~140px)
-    scale = 2
-    w_hi, h_hi = 1024 * scale, 1024 * scale
-    mask_hi = Image.new('L', (w_hi, h_hi), 0)
-    draw_sq = ImageDraw.Draw(mask_hi)
-    draw_sq.rounded_rectangle([0, 0, w_hi - 1, h_hi - 1], radius=int(140 * scale), fill=255)
-    squircle_mask = mask_hi.resize((1024, 1024), Image.Resampling.LANCZOS)
-    squircle = fullbleed.copy()
-    squircle.putalpha(squircle_mask)
-
-    # 5. Create antialiased circle master for round launcher icon
-    circle_hi = Image.new('L', (w_hi, h_hi), 0)
-    draw_c = ImageDraw.Draw(circle_hi)
-    draw_c.ellipse([0, 0, w_hi - 1, h_hi - 1], fill=255)
-    circle_mask = circle_hi.resize((1024, 1024), Image.Resampling.LANCZOS)
-    circle = fullbleed.copy()
-    circle.putalpha(circle_mask)
-
-    # 6. Create adaptive foreground master (108dp canvas, emblem scaled to fit 72dp safe zone)
-    # Scale factor 0.66 ensures zero clipping on circle / squircle OEM launcher masks
-    fg_canvas = Image.new('RGBA', (1024, 1024))
-    fg_pix = fg_canvas.load()
-    for y in range(1024):
-        for x in range(1024):
-            t = (x + (1023 - y)) / 2046.0
-            r = int(c0[0] + (c1[0] - c0[0]) * t)
-            g = int(c0[1] + (c1[1] - c0[1]) * t)
-            b = int(c0[2] + (c1[2] - c0[2]) * t)
-            fg_pix[x, y] = (r, g, b, 255)
-
-    scaled_size = int(1024 * 0.66)
-    scaled_content = fullbleed.resize((scaled_size, scaled_size), Image.Resampling.LANCZOS)
-    offset = (1024 - scaled_size) // 2
-    fg_canvas.paste(scaled_content, (offset, offset))
-
-    # 7. Create maskable icon master (scaled to 78% for PWA 80% safe zone circle)
-    maskable_canvas = fg_canvas.copy()
-    m_scaled_size = int(1024 * 0.78)
-    m_scaled = fullbleed.resize((m_scaled_size, m_scaled_size), Image.Resampling.LANCZOS)
-    m_offset = (1024 - m_scaled_size) // 2
-    maskable_canvas.paste(m_scaled, (m_offset, m_offset))
-
-    return squircle, circle, fg_canvas, fullbleed, maskable_canvas
 
 def main():
     squircle, circle, fg_master, fullbleed, maskable = build_masters()
-
     written = []
 
-    def save_png(img, size, rel_path):
+    def save_png(img: Image.Image, size: int, rel_path: str, opaque: bool = False):
         target = os.path.join(ROOT, rel_path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        resized = img.resize((size, size), Image.Resampling.LANCZOS)
-        resized.save(target, format='PNG', optimize=True)
+        out = img if img.size == (size, size) else img.resize((size, size), Image.Resampling.LANCZOS)
+        if opaque:
+            out = out.convert('RGB')
+        out.save(target, format='PNG', optimize=True)
         written.append(f"{rel_path} ({size}x{size})")
 
-    # Android Densities
+    # Master assets in resources/
+    save_png(fullbleed, MASTER_SIZE, "resources/fullbleed_master.png")
+    save_png(squircle, MASTER_SIZE, "resources/squircle_master.png")
+    save_png(circle, MASTER_SIZE, "resources/circle_master.png")
+    save_png(fg_master, MASTER_SIZE, "resources/adaptive_foreground_master.png")
+    source_jpg = os.path.join(ROOT, "resources", "app-icon-source.jpg")
+    fullbleed.convert('RGB').save(source_jpg, format='JPEG', quality=95)
+    written.append("resources/app-icon-source.jpg (1024x1024)")
+
+    # Android densities
     android_legacy = [
         ('mdpi', 48),
         ('hdpi', 72),
@@ -120,7 +134,6 @@ def main():
         ('xxhdpi', 144),
         ('xxxhdpi', 192),
     ]
-
     android_foreground = [
         ('mdpi', 108),
         ('hdpi', 162),
@@ -138,11 +151,19 @@ def main():
         base = f"android/app/src/main/res/mipmap-{density}"
         save_png(fg_master, edge, f"{base}/ic_launcher_foreground.png")
 
+    # iOS AppIcon (must be 1024x1024 opaque RGB)
+    save_png(
+        fullbleed,
+        1024,
+        "ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
+        opaque=True,
+    )
+
     # Web & PWA
     save_png(squircle, 192, "public/icons/icon-192.png")
     save_png(squircle, 512, "public/icons/icon-512.png")
     save_png(maskable, 512, "public/icons/icon-maskable-512.png")
-    save_png(fullbleed, 180, "public/icons/apple-touch-icon-180.png")
+    save_png(fullbleed, 180, "public/icons/apple-touch-icon-180.png", opaque=True)
     save_png(squircle, 32, "public/favicon-32.png")
 
     # Multi-resolution favicon.ico
@@ -151,12 +172,12 @@ def main():
     ico_img.save(ico_target, format='ICO', sizes=[(16, 16), (32, 32), (48, 48)])
     written.append("public/favicon.ico (16, 32, 48)")
 
-    # Update ic_launcher_background.xml
+    # Update ic_launcher_background.xml to center purple stop
     bg_xml_path = os.path.join(ROOT, "android/app/src/main/res/values/ic_launcher_background.xml")
     if os.path.exists(bg_xml_path):
         bg_content = """<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#8c64c7</color>
+    <color name="ic_launcher_background">#a855f7</color>
 </resources>
 """
         with open(bg_xml_path, "w", encoding="utf-8") as f:
@@ -166,6 +187,7 @@ def main():
     print("\nSuccessfully generated all app icons:")
     for w in written:
         print(f"  [OK] {w}")
+
 
 if __name__ == '__main__':
     main()

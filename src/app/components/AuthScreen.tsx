@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Activity,
   Eye,
   EyeOff,
   User,
   Mail,
   Lock,
   ArrowRight,
-  ShieldCheck,
   X,
   Send,
   CheckCircle2
@@ -256,7 +254,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           {/* Form Header */}
           <div className="mb-5">
             <h1 className="text-2xl font-black text-white tracking-tight">
-              {authMode === 'login' ? t('Welcome Back, Athlete') : t('Join OptiStance')}
+              {authMode === 'login' ? t('Welcome Back, Athlete') : t('Join Optistance')}
             </h1>
             <p className="text-xs text-zinc-400 mt-1">
               {authMode === 'login'
@@ -467,20 +465,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
         </div>
       </main>
-
-      {/* Footer trust line. These used to read "AES-256 KINEMATICS" and
-          "60 FPS AI INFERENCE" — encryption and throughput claims the app
-          neither makes nor can substantiate. Kept the icons, dropped the claims. */}
-      <footer className="relative z-10 px-6 py-4 flex items-center justify-between max-w-md mx-auto w-full text-[10px] text-zinc-500 font-mono">
-        <div className="flex items-center gap-1.5">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>{t('ON-DEVICE POSE ANALYSIS')}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Activity className="w-3 h-3 text-indigo-400" />
-          <span>{t('NO DATA LEAVES YOUR PHONE')}</span>
-        </div>
-      </footer>
 
       {/* Post-Signup Confirmation Notice Modal */}
       {showVerifyChoiceModal && pendingUser && (

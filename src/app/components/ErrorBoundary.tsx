@@ -22,7 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[OptiStance ErrorBoundary caught error]:', error, errorInfo);
+    console.error('[Optistance ErrorBoundary caught error]:', error, errorInfo);
   }
 
   private handleReset = () => {

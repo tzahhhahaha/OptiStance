@@ -22,3 +22,6 @@ temp_pom_glossary.pdf
 # regenerated from the pinned @mediapipe/pose version, so there is nothing to
 # review here.
 public/mediapipe/
+# IDE config
+.idea/
+android/.idea/

@@ -1,164 +1,94 @@
-# OptiStance Native App Setup Guide
+# OptiStance Native App Setup Guide (Capacitor)
 
-This project is now configured as a **pure native mobile app** for iOS and Android using Capacitor. Web browser support has been removed.
+OptiStance supports both **Web/PWA browsers** and **native iOS & Android builds** packaged with Capacitor 8 (`appId: com.optistance.cheerpose`, `appName: OptiStance`).
 
 ## Prerequisites
 
-### For Both iOS and Android:
-```bash
-npm install -g @capacitor/cli
-npm install
-```
+### General
+- Node.js 20.x, 22.x, or 24+ and npm
+- Run `npm install` at the repository root
 
-### For Android Development:
+### Android Development
 - Android Studio installed
-- Android SDK (API Level 21+)
-- JAVA_HOME environment variable configured
+- Android SDK (API Level 24+; the app's configured minSdk is 24)
+- `JAVA_HOME` configured (JDK 17+)
 
-### For iOS Development:
-- Xcode 14+
-- macOS 12+
+### iOS Development
+- macOS with Xcode 15+
 - CocoaPods (`sudo gem install cocoapods`)
+
+---
 
 ## Quick Start
 
-### 1. Initialize Platforms (First Time Only)
+### 1. Initialize Platforms (If Not Already Present)
+
+The `android/` and `ios/` directories are already included in the repository. If you ever need to re-add them:
+```bash
+npm run cap:add:android
+npm run cap:add:ios
+```
+
+### 2. Build, Sync, and Open Native IDE
+
+Both scripts automatically run `npm run vendor:mediapipe` (bundling the offline MediaPipe Pose & Hands models into `public/mediapipe/`), run `vite build`, sync `dist/` to the native project (`npx cap sync`), and launch the native IDE:
 
 **Android:**
 ```bash
-npm run cap:add:android
+npm run build:android
+# Or alias: npm run dev:android
 ```
 
 **iOS:**
 ```bash
-npm run cap:add:ios
-```
-
-### 2. Build and Run
-
-**For Android:**
-```bash
-npm run build:android
-# This builds the app and opens Android Studio
-# Select your device/emulator and run
-```
-
-**For iOS:**
-```bash
 npm run build:ios
-# This builds the app and opens Xcode
-# Select your device/simulator and press Run (Cmd+R)
+# Or alias: npm run dev:ios
 ```
 
-### 3. Development Workflow
+### 3. Sync Web Changes Without Opening IDE
 
-After initial setup, use these commands:
-
-**Sync code changes to native projects:**
 ```bash
+npm run build
 npm run sync
 ```
 
-**Build and open in IDE:**
+---
+
+## Native & Offline Capabilities
+
+- **Offline MediaPipe Inference**: `scripts/vendor-mediapipe.mjs` copies the Pose (`pose_landmark_lite.tflite`) and Hands (`hand_landmark_lite.tflite`) WASM/TFLite runtime into `public/mediapipe/` before every build so pose detection works with zero network connectivity.
+- **Camera (`@capacitor/camera` + WebRTC)**: `src/app/utils/device.ts` (`isCapacitorNative`) coordinates permissions and camera selection across native WebViews and desktop/mobile browsers.
+- **Haptics (`@capacitor/haptics`)**: `src/app/utils/haptics.ts` provides tactile feedback on pose lock, countdowns, and mastery milestones.
+- **Local Notifications (`@capacitor/local-notifications`)**: `src/app/utils/notifications.ts` schedules mastery milestone alerts and offline sync reminders.
+- **App Lifecycle (`@capacitor/app`)**: Handles hardware back button navigation and background/foreground transitions.
+
+---
+
+## Generating App Icons
+
+To regenerate native Android and iOS icons from `resources/`:
 ```bash
-npm run dev:android    # Opens Android Studio
-npm run dev:ios        # Opens Xcode
+npm run icons
 ```
 
-**Build only (without opening IDE):**
+---
+
+## Building for Production Release
+
+### Android Release Bundle (`.aab`):
 ```bash
 npm run build
-```
-
-## Project Structure
-
-```
-├── src/                          # React source code
-│   ├── app/
-│   │   └── App.tsx              # Main app component
-│   ├── services/
-│   │   ├── supabaseService.ts   # Backend API
-│   │   └── supabaseApi.ts       # Database operations
-│   └── styles/                   # Mobile-optimized styles
-├── android/                       # Android native code (auto-generated)
-├── ios/                          # iOS native code (auto-generated)
-├── capacitor.config.json         # Native app configuration
-├── package.json                  # Dependencies and scripts
-└── vite.config.ts               # Build configuration
-```
-
-## Native Features Enabled
-
-- **Camera Access**: Pose detection and video capture
-- **Storage**: Local data persistence
-- **Back Button**: Hardware back button handling (Android)
-- **App Lifecycle**: Pause/resume event handling
-- **Full Screen**: Edge-to-edge display support (iOS notch handling)
-
-## Building for Production
-
-### Android Release Build:
-```bash
+npm run sync
 cd android
 ./gradlew bundleRelease
 # Output: android/app/build/outputs/bundle/release/app-release.aab
 ```
 
-### iOS Release Build:
-```bash
-# In Xcode:
-# 1. Select "Any iOS Device (arm64)"
-# 2. Product → Archive
-# 3. Distribute using "App Store Connect"
-```
+### iOS Release Archive:
+1. Run `npm run build:ios`
+2. In Xcode, select **Any iOS Device (arm64)**
+3. Choose **Product** → **Archive** and distribute via **App Store Connect**
 
-## Debugging
+---
 
-### Android:
-- Chrome DevTools: `chrome://inspect` while app is running
-- Android Studio: Logcat panel shows app logs
-
-### iOS:
-- Xcode: Console shows app logs
-- Safari DevTools: Develop → [Device] → Your App
-
-## Important Notes
-
-- **No Web Support**: This is now a mobile-only app. Web browser support has been removed.
-- **App IDs**: Update `capacitor.config.json` with your unique app ID before publishing
-- **Version Bumping**: Update version in `capacitor.config.json` and app build settings for releases
-- **Plugins**: All Capacitor plugins are managed via `npm install @capacitor/[plugin-name]`
-
-## Troubleshooting
-
-**"Pod install failed" (iOS):**
-```bash
-cd ios
-rm -rf Pods Podfile.lock
-pod install
-cd ..
-```
-
-**"Gradle sync failed" (Android):**
-```bash
-cd android
-./gradlew clean
-cd ..
-npm run sync
-```
-
-**App not showing latest changes:**
-```bash
-npm run sync
-# Then rebuild in Android Studio or Xcode
-```
-
-## Next Steps
-
-1. Update the app ID in `capacitor.config.json` with your organization's ID
-2. Add app icons and splash screens in `android/app/src/main/res` and `ios/App/App/Assets.xcassets`
-3. Configure signing certificates for iOS (Apple Developer account required)
-4. Set up Keystore for Android signing
-5. Test on physical devices before publishing to app stores
-
-For more info: https://capacitorjs.com/docs
+*Last updated: October 27, 2026*

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "id": "arabesque",
+  "topology": "mediapipe-pose-33",
+  "coordinateFrame": {
+    "units": "standing-leg-length",
+    "origin": "hip-midpoint",
+    "axes": {
+      "x": "athlete-left/right",
+      "y": "up",
+      "z": "forward"
+    },
+    "unlistedLandmarks": "unconstrained"
+  },
+  "roles": {
+    "standingSide": "left",
+    "liftedSide": "right"
+  },
+  "landmarksById": {
+    "11": { "x": -0.2, "y": 0.5, "z": 0 },
+    "12": { "x": 0.2, "y": 0.5, "z": 0 },
+    "13": { "x": -0.42, "y": 0.5, "z": 0 },
+    "14": { "x": 0.42, "y": 0.5, "z": 0 },
+    "15": { "x": -0.64, "y": 0.5, "z": 0 },
+    "16": { "x": 0.64, "y": 0.5, "z": 0 },
+    "23": { "x": -0.1, "y": 0, "z": 0 },
+    "24": { "x": 0.1, "y": 0, "z": 0 },
+    "25": { "x": -0.1, "y": -0.48, "z": 0 },
+    "26": { "x": 0.28, "y": -0.02, "z": -0.04 },
+    "27": { "x": -0.1, "y": -0.96, "z": 0 },
+    "28": { "x": 0.5, "y": 0, "z": -0.08 }
+  },
+  "constraints": {
+    "standingKnee": {
+      "targetDeg": 180,
+      "toleranceDeg": { "beginner": 15, "advanced": 8 },
+      "weight": 3
+    },
+    "liftedKnee": {
+      "targetDeg": 180,
+      "toleranceDeg": { "beginner": 15, "advanced": 8 },
+      "weight": 2
+    },
+    "liftedHip": {
+      "targetDeg": 90,
+      "toleranceDeg": { "beginner": 20, "advanced": 10 },
+      "weight": 2.5
+    },
+    "standingLegAlignment": {
+      "targetDeg": 0,
+      "toleranceDeg": { "beginner": 10, "advanced": 6 },
+      "weight": 1.5
+    },
+    "rearLegElevation": {
+      "targetDeg": 0,
+      "toleranceDeg": { "beginner": 15, "advanced": 10 },
+      "weight": 2
+    },
+    "torsoLean": {
+      "targetDeg": 15,
+      "toleranceDeg": { "beginner": 15, "advanced": 10 },
+      "weight": 1.5
+    },
+    "leftArmElevation": {
+      "targetDeg": 0,
+      "toleranceDeg": { "beginner": 15, "advanced": 8 },
+      "weight": 1.5
+    },
+    "rightArmElevation": {
+      "targetDeg": 0,
+      "toleranceDeg": { "beginner": 15, "advanced": 8 },
+      "weight": 1.5
+    },
+    "leftElbow": {
+      "targetDeg": 180,
+      "toleranceDeg": { "beginner": 15, "advanced": 8 },
+      "weight": 1
+    },
+    "rightElbow": {
+      "targetDeg": 180,
+      "toleranceDeg": { "beginner": 15, "advanced": 8 },
+      "weight": 1
+    }
+  },
+  "minimumVisibility": 0.2,
+  "note": "Illustrative normalized reference coordinates; calibrate to the application's camera and MediaPipe output."
+}

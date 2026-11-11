@@ -138,10 +138,14 @@ export const userService = {
     unwrap(null, error, `update role of user ${userId}`);
   },
 
-  /** Soft-delete: flips `is_active` to false (rows are never hard-deleted). */
+  /** Permanently erase the user and all cascaded telemetry records. */
   async deleteUser(userId: string): Promise<void> {
-    const { error } = await supabase.from('users').update({ is_active: false }).eq('id', userId);
-    unwrap(null, error, `deactivate user ${userId}`);
+    if (typeof supabase.rpc === 'function') {
+      const { error: rpcError } = await supabase.rpc('delete_user_account', { p_user_id: userId });
+      if (!rpcError) return;
+    }
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+    unwrap(null, error, `delete user ${userId}`);
   },
 
   async getAthleteProfile(userId: string): Promise<AthleteProfile | null> {
@@ -165,7 +169,8 @@ export const stuntService = {
       .select('*')
       .eq('is_archived', false)
       .order('created_at', { ascending: false });
-    return unwrap<Stunt[]>(data ?? [], error, 'fetch stunts');
+    const stunts = unwrap<Stunt[]>(data ?? [], error, 'fetch stunts');
+    return stunts;
   },
 
   async getStunt(stuntId: string): Promise<Stunt | null> {
@@ -195,11 +200,27 @@ export const stuntService = {
     await this.updateStunt(stuntId, { is_archived: true });
   },
 
-  /** Hard-delete – only safe for stunts with no historical sessions. */
+  /** Retrieve all archived stunts. */
+  async getArchivedStunts(): Promise<Stunt[]> {
+    const { data, error } = await supabase
+      .from('stunts')
+      .select('*')
+      .eq('is_archived', true)
+      .order('updated_at', { ascending: false });
+    return unwrap<Stunt[]>(data ?? [], error, 'fetch archived stunts');
+  },
+
+  /** Restore an archived stunt back to the active syllabus. */
+  async restoreStunt(stuntId: string): Promise<void> {
+    await this.updateStunt(stuntId, { is_archived: false });
+  },
+
+  /** Hard-delete – permanently remove stunt. */
   async deleteStunt(stuntId: string): Promise<void> {
     const { error } = await supabase.from('stunts').delete().eq('id', stuntId);
     unwrap(null, error, `delete stunt ${stuntId}`);
   },
+
 };
 
 // ============================================================

@@ -7,24 +7,29 @@ import {
   Clock,
   CheckCircle2,
   Target,
-  Edit3,
   ShieldCheck,
   Zap,
   ChevronRight,
   Play,
   Lock,
-  X,
   Mail,
-  Send
+  Send,
+  RefreshCw
 } from 'lucide-react';
 import { UserProfile, Pose, PracticeSession, MASTERY_THRESHOLD } from '../types';
 import { useResendVerification } from '../hooks/useResendVerification';
 import { useAthleteVerification } from '../hooks/useAthleteVerification';
+import { checkAndCompleteEmailConfirmation } from '../../services/supabaseApi';
+import { displayRoleLabel, calculateSkillLevel } from '../utils/profile';
 
 interface ProfileScreenProps {
   user: UserProfile;
   poses: Pose[];
   sessions: PracticeSession[];
+  /**
+   * Writes server-owned fields (verification status, back from the server after
+   * a request). Never route a user-typed form through this.
+   */
   onUpdateUser: (newUser: Partial<UserProfile>) => void;
   onStartPracticeWithPoseId: (poseId: string) => void;
 }
@@ -43,6 +48,11 @@ interface Achievement {
   xpReward: number;
 }
 
+/** Consecutive clean attempts on one pose needed for Zero-Wobble Core. */
+const CLEAN_RUN_TARGET = 10;
+/** Fully scored routines needed for ICU Protocol Guardian. */
+const SCORED_ROUTINE_TARGET = 10;
+
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   user,
   poses,
@@ -52,7 +62,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'achievements'>('overview');
   const [achievementFilter, setAchievementFilter] = useState<'all' | 'unlocked' | 'locked'>('all');
-  const [showEditModal, setShowEditModal] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -63,6 +72,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     resend: resendVerification
   } = useResendVerification(user.email);
 
+  // Manual "I've Confirmed My Email" check state (handles cross-browser or
+  // localhost redirect when clicking the link inside an email app).
+  const [isCheckingConfirmation, setIsCheckingConfirmation] = useState(false);
+  const [confirmCheckNotice, setConfirmCheckNotice] = useState<string | null>(null);
+  const [confirmCheckError, setConfirmCheckError] = useState<string | null>(null);
+  const [needsPasswordForSync, setNeedsPasswordForSync] = useState(false);
+  const [syncPassword, setSyncPassword] = useState('');
+
   // Athlete verification (admin approval) — distinct from email confirmation above.
   const {
     status: athleteVerificationStatus,
@@ -71,20 +88,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     notice: athleteVerificationNotice,
     request: requestAthleteVerification
   } = useAthleteVerification(user, onUpdateUser);
-
-  // Edit profile form state
-  const [editName, setEditName] = useState(user.name || '');
-  const [editRole, setEditRole] = useState(user.role || 'Cheer Athlete');
-  const [editEmail, setEditEmail] = useState(user.email || '');
-
-  // Keep the edit form in sync with the latest profile whenever the modal re-opens.
-  useEffect(() => {
-    if (showEditModal) {
-      setEditName(user.name || '');
-      setEditRole(user.role || 'Cheer Athlete');
-      setEditEmail(user.email || '');
-    }
-  }, [showEditModal, user.name, user.role, user.email]);
 
   // Clear any pending toast timer on unmount.
   useEffect(() => {
@@ -99,25 +102,53 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editName.trim()) return;
-
-    onUpdateUser({
-      name: editName.trim(),
-      role: editRole.trim(),
-      email: editEmail.trim()
-    });
-
-    setShowEditModal(false);
-    showToast('Athlete profile updated successfully!');
+  const handleCheckEmailConfirmed = async (manualPwd?: string) => {
+    setConfirmCheckNotice(null);
+    setConfirmCheckError(null);
+    setIsCheckingConfirmation(true);
+    try {
+      const res = await checkAndCompleteEmailConfirmation(user.email, manualPwd);
+      if (res.confirmed) {
+        setNeedsPasswordForSync(false);
+        setSyncPassword('');
+        onUpdateUser({
+          emailVerified: true,
+          ...(res.user?.isVerified ? { isVerified: true, verificationStatus: 'verified' } : {}),
+        });
+        showToast('Email confirmed! Your account is now synced.');
+        return;
+      }
+      if (res.reason === 'needs_password') {
+        setNeedsPasswordForSync(true);
+        setConfirmCheckNotice(
+          'Enter your password below once to sync your confirmed email in this browser tab.'
+        );
+      } else if (res.reason === 'not_confirmed_yet') {
+        setConfirmCheckError(
+          'Supabase still shows your email as unconfirmed. Make sure you clicked the "Confirm your mail" link in your inbox (even if the page after clicking said localhost could not connect), then tap again.'
+        );
+      } else if (res.reason === 'invalid_credentials') {
+        setConfirmCheckError('Incorrect password. Please enter the password you used when signing up.');
+      } else {
+        setConfirmCheckError(res.message || 'Could not verify email confirmation status yet.');
+      }
+    } finally {
+      setIsCheckingConfirmation(false);
+    }
   };
 
   // Telemetry & Progress Calculations
   const totalMastered = poses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length;
+  const eligibleSessions = sessions.filter((session) => !session.isDuplicateUpload);
+  const eligibleSessionsCount = eligibleSessions.length;
+  const eligiblePracticeMins = Math.round(
+    eligibleSessions.reduce((total, session) => total + session.durationSeconds, 0) / 60
+  );
+  // Never 0, so achievement progress bars can't divide by zero on an empty library.
+  const librarySize = Math.max(poses.length, 1);
   const avgAccuracy =
-    sessions.length > 0
-      ? Math.round(sessions.reduce((acc, s) => acc + s.accuracyScore, 0) / sessions.length)
+    eligibleSessionsCount > 0
+      ? Math.round(eligibleSessions.reduce((acc, s) => acc + s.accuracyScore, 0) / eligibleSessionsCount)
       : 0;
 
   const totalPracticeMins =
@@ -128,7 +159,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const activeTrainingStreak = (() => {
     const activityDays = new Set(
-      sessions
+      eligibleSessions
         .map((session) => new Date(session.timestamp))
         .filter((date) => !Number.isNaN(date.getTime()))
         .map((date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`)
@@ -160,6 +191,40 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     return streak;
   })();
 
+  // Longest run of back-to-back sessions on a single pose that all cleared the
+  // mastery threshold. "Steadiness" rather than peak score, which is what
+  // separates Zero-Wobble Core from ICU Precision Master.
+  const longestCleanRun = (() => {
+    const byPose = new Map<string, number[]>();
+    for (const session of [...eligibleSessions].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    )) {
+      const scores = byPose.get(session.poseId) ?? [];
+      scores.push(session.accuracyScore);
+      byPose.set(session.poseId, scores);
+    }
+
+    let best = 0;
+    for (const scores of byPose.values()) {
+      let run = 0;
+      for (const score of scores) {
+        run = score >= MASTERY_THRESHOLD ? run + 1 : 0;
+        best = Math.max(best, run);
+      }
+    }
+    return best;
+  })();
+
+  // A routine counts as fully scored when a pose matched and joint angles were
+  // captured — the closest thing the app records to "met the angle standards".
+  const fullyScoredRoutines = eligibleSessions.filter(
+    (s) => s.accuracyScore >= 60 && Object.keys(s.measuredAngles ?? {}).length > 0
+  ).length;
+
+  const peakAccuracy =
+    eligibleSessionsCount > 0 ? Math.max(...eligibleSessions.map((s) => s.accuracyScore)) : 0;
+  const libertyMastery = poses.find((p) => p.id === 'liberty')?.masteryPercentage || 0;
+
   // Achievements Definition with dynamic progress
   const achievements: Achievement[] = [
     {
@@ -169,9 +234,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       category: 'precision',
       tier: 'gold',
       icon: '🏆',
-      unlocked: sessions.some((s) => s.accuracyScore >= 90),
-      unlockedDate: sessions.some((s) => s.accuracyScore >= 90) ? 'Unlocked' : undefined,
-      progress: sessions.length > 0 ? Math.min(avgAccuracy, 90) : 0,
+      unlocked: peakAccuracy >= 90,
+      unlockedDate: peakAccuracy >= 90 ? 'Unlocked' : undefined,
+      progress: Math.min(peakAccuracy, 90),
       maxProgress: 90,
       xpReward: 500
     },
@@ -182,9 +247,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       category: 'mastery',
       tier: 'gold',
       icon: '🎯',
-      unlocked: (poses.find((p) => p.id === 'liberty')?.masteryPercentage || 0) >= MASTERY_THRESHOLD,
-      unlockedDate: 'Unlocked',
-      progress: poses.find((p) => p.id === 'liberty')?.masteryPercentage || 0,
+      unlocked: libertyMastery >= 85,
+      unlockedDate: libertyMastery >= 85 ? 'Unlocked' : undefined,
+      progress: Math.min(libertyMastery, 85),
       maxProgress: 85,
       xpReward: 400
     },
@@ -204,13 +269,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     {
       id: 'stability_star',
       title: 'Zero-Wobble Core',
-      description: 'Maintain steady stunt balance without red-zone joint drift',
+      description: `Land ${CLEAN_RUN_TARGET} attempts in a row on one pose at ${MASTERY_THRESHOLD}%+`,
       category: 'precision',
       tier: 'diamond',
       icon: '⚡',
-      unlocked: false,
-      progress: 0,
-      maxProgress: 10,
+      unlocked: longestCleanRun >= CLEAN_RUN_TARGET,
+      unlockedDate: longestCleanRun >= CLEAN_RUN_TARGET ? 'Unlocked' : undefined,
+      progress: Math.min(longestCleanRun, CLEAN_RUN_TARGET),
+      maxProgress: CLEAN_RUN_TARGET,
       xpReward: 600
     },
     {
@@ -220,22 +286,26 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       category: 'endurance',
       tier: 'diamond',
       icon: '🚀',
-      unlocked: totalSessionsCount >= 25,
-      unlockedDate: totalSessionsCount >= 25 ? 'Unlocked' : undefined,
-      progress: Math.min(totalSessionsCount, 25),
+      unlocked: eligibleSessionsCount >= 25,
+      unlockedDate: eligibleSessionsCount >= 25 ? 'Unlocked' : undefined,
+      progress: Math.min(eligibleSessionsCount, 25),
       maxProgress: 25,
       xpReward: 750
     },
     {
       id: 'grand_champion',
       title: 'Grand Stunt Champion',
-      description: 'Master all 8 stunt poses in the OptiStance syllabus',
+      // Driven by the real library size. This used to be hardcoded to 8 while
+      // the library only ships 7 poses, so the badge could never unlock and the
+      // progress bar was stuck at 87%.
+      description: `Master all ${librarySize} poses in the OptiStance syllabus`,
       category: 'mastery',
       tier: 'diamond',
       icon: '🌟',
-      unlocked: totalMastered >= 8,
-      progress: totalMastered,
-      maxProgress: 8,
+      unlocked: librarySize > 0 && totalMastered >= librarySize,
+      unlockedDate: librarySize > 0 && totalMastered >= librarySize ? 'Unlocked' : undefined,
+      progress: Math.min(totalMastered, librarySize),
+      maxProgress: librarySize,
       xpReward: 1000
     },
     {
@@ -245,22 +315,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       category: 'endurance',
       tier: 'silver',
       icon: '⏱️',
-      unlocked: totalPracticeMins >= 150,
-      unlockedDate: totalPracticeMins >= 150 ? 'Unlocked' : undefined,
-      progress: Math.min(totalPracticeMins, 150),
+      unlocked: eligiblePracticeMins >= 150,
+      unlockedDate: eligiblePracticeMins >= 150 ? 'Unlocked' : undefined,
+      progress: Math.min(eligiblePracticeMins, 150),
       maxProgress: 150,
       xpReward: 450
     },
     {
       id: 'safety_first',
       title: 'ICU Protocol Guardian',
-      description: 'Execute 10 stunt routines meeting full ICU angle standards',
+      description: `Complete ${SCORED_ROUTINE_TARGET} fully scored routines with joint angles captured`,
       category: 'precision',
       tier: 'bronze',
       icon: '🛡️',
-      unlocked: false,
-      progress: 0,
-      maxProgress: 10,
+      unlocked: fullyScoredRoutines >= SCORED_ROUTINE_TARGET,
+      unlockedDate: fullyScoredRoutines >= SCORED_ROUTINE_TARGET ? 'Unlocked' : undefined,
+      progress: Math.min(fullyScoredRoutines, SCORED_ROUTINE_TARGET),
+      maxProgress: SCORED_ROUTINE_TARGET,
       xpReward: 250
     }
   ];
@@ -270,8 +341,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     .reduce((total, achievement) => total + achievement.xpReward, 0);
   const honorsLevel = Math.floor(earnedXp / 500) + 1;
   const honorsTier = honorsLevel >= 4 ? 'Elite' : honorsLevel >= 2 ? 'Rising' : 'Rookie';
+  const skillLevel = calculateSkillLevel(poses, eligibleSessions);
 
-  const filteredAchievements = achievements.filter((ach) => {
+  const sortedAchievements = [...achievements].sort((a, b) => {
+    if (a.unlocked !== b.unlocked) return a.unlocked ? -1 : 1;
+    const ratioA = a.maxProgress > 0 ? a.progress / a.maxProgress : 0;
+    const ratioB = b.maxProgress > 0 ? b.progress / b.maxProgress : 0;
+    return ratioB - ratioA;
+  });
+
+  const filteredAchievements = sortedAchievements.filter((ach) => {
     if (achievementFilter === 'unlocked') return ach.unlocked;
     if (achievementFilter === 'locked') return !ach.unlocked;
     return true;
@@ -279,11 +358,61 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const unlockedCount = achievements.filter((achievement) => achievement.unlocked).length;
 
+  const formatShortDate = (iso: string | undefined): string => {
+    if (!iso) return 'Not practiced yet';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const poseStatsById = new Map<
+    string,
+    { attempts: number; lastPracticedLabel: string; lastPracticedMs: number }
+  >(
+    poses.map((pose) => {
+      const matching = eligibleSessions.filter(
+        (s) => s.poseId === pose.id || s.poseName.toLowerCase() === pose.name.toLowerCase()
+      );
+      let latestIso: string | undefined;
+      let latestMs = 0;
+      for (const s of matching) {
+        const ms = new Date(s.timestamp).getTime();
+        if (!Number.isNaN(ms) && ms > latestMs) {
+          latestMs = ms;
+          latestIso = s.timestamp;
+        } else if (!latestIso && s.timestamp) {
+          latestIso = s.timestamp;
+        }
+      }
+      return [
+        pose.id,
+        {
+          attempts: matching.length,
+          lastPracticedLabel: formatShortDate(latestIso),
+          lastPracticedMs: latestMs,
+        },
+      ];
+    })
+  );
+
+  const topPoses = [...poses].sort((a, b) => {
+    if (b.masteryPercentage !== a.masteryPercentage) {
+      return b.masteryPercentage - a.masteryPercentage;
+    }
+    const attA = poseStatsById.get(a.id)?.attempts ?? 0;
+    const attB = poseStatsById.get(b.id)?.attempts ?? 0;
+    return attB - attA;
+  });
+
   return (
     <div className="px-4 md:px-8 py-6 max-w-6xl mx-auto space-y-8 animate-fade-in text-[#E0E0E6]">
       {/* Toast Feedback */}
       {toastMessage && (
-        <div className="fixed top-20 right-6 z-50 bg-emerald-500/90 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl backdrop-blur-md flex items-center gap-2 animate-bounce">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-20 right-6 z-50 bg-emerald-500/90 text-white text-xs font-semibold px-4 py-2.5 rounded-2xl shadow-xl backdrop-blur-md flex items-center gap-2 animate-fade-in"
+        >
           <CheckCircle2 className="w-4 h-4" />
           <span>{toastMessage}</span>
         </div>
@@ -310,14 +439,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight">
                   {user.name || 'Alex Morgan'}
                 </h1>
                 <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-indigo-300">
-                  {user.role || 'Cheer Athlete'}
+                  {displayRoleLabel(user)}
+                </span>
+                <span className={`text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full border ${skillLevel.badgeClass}`}>
+                  {skillLevel.label}
                 </span>
               </div>
+
+              {user.specialty && (
+                <p className="text-xs text-indigo-200/90 italic font-medium mb-1">
+                  &ldquo;{user.specialty}&rdquo;
+                </p>
+              )}
 
               <p className="text-xs text-zinc-400 font-medium mb-2">
                 {user.email || 'athlete@optistance.app'}
@@ -336,23 +474,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <button
-              onClick={() => setShowEditModal(true)}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 hover:text-white transition-all active:scale-95"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Edit Profile</span>
-            </button>
-            <button
-              onClick={() => onStartPracticeWithPoseId('liberty')}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white text-xs font-extrabold shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-all active:scale-95"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Quick Practice</span>
-            </button>
-          </div>
         </div>
       </div>
 
@@ -402,7 +523,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         <div className="space-y-6">
           {/* Email Confirmation (only for users who signed up while confirm-email is enabled) */}
           {user.emailVerified === false && !user.isGuest && (
-            <div className="p-6 rounded-3xl bg-[#0c0c12]/90 border border-amber-500/25 backdrop-blur-xl">
+            <div className="p-6 rounded-3xl bg-[#0c0c12]/90 border border-amber-500/25 backdrop-blur-xl space-y-4">
               <div className="flex flex-col md:flex-row md:items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-300 flex items-center justify-center shrink-0">
                   <Mail className="w-6 h-6" />
@@ -413,29 +534,73 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     Confirm your email
                   </h3>
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                    We&apos;ll send a confirmation link to{' '}
-                    <span className="font-semibold text-zinc-200">{user.email}</span>. Your account works either way —
-                    confirming enables cloud sync and keeps your progress backed up.
+                    Check <span className="font-semibold text-zinc-200">{user.email}</span> for a confirmation link (or tap{' '}
+                    <span className="text-zinc-200 font-semibold">Confirm email</span> to resend).{' '}
+                    <span className="text-amber-200/90">
+                      If clicking the link in your email opened another browser or said &ldquo;can&apos;t connect to localhost&rdquo;, your email is already verified on the server — just tap &ldquo;I&apos;ve Confirmed My Email&rdquo;!
+                    </span>
                   </p>
                   {verificationStatus && (
                     <p className="text-[11px] text-emerald-300 mt-2 flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {verificationStatus}
                     </p>
                   )}
+                  {confirmCheckNotice && (
+                    <p className="text-[11px] text-indigo-300 mt-2 leading-relaxed">{confirmCheckNotice}</p>
+                  )}
                   {verificationError && (
                     <p className="text-[11px] text-rose-300 mt-2 leading-relaxed">{verificationError}</p>
                   )}
+                  {confirmCheckError && (
+                    <p className="text-[11px] text-rose-300 mt-2 leading-relaxed">{confirmCheckError}</p>
+                  )}
                 </div>
 
-                <button
-                  onClick={() => void resendVerification()}
-                  disabled={isSendingVerification}
-                  className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  <Send className="w-4 h-4" />
-                  {isSendingVerification ? 'Sending…' : 'Confirm email'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                  <button
+                    onClick={() => void handleCheckEmailConfirmed()}
+                    disabled={isCheckingConfirmation}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 font-bold text-xs uppercase tracking-wider active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isCheckingConfirmation ? 'animate-spin' : ''}`} />
+                    {isCheckingConfirmation ? 'Checking…' : "I've Confirmed My Email"}
+                  </button>
+
+                  <button
+                    onClick={() => void resendVerification()}
+                    disabled={isSendingVerification}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-4 h-4" />
+                    {isSendingVerification ? 'Sending…' : 'Confirm email'}
+                  </button>
+                </div>
               </div>
+
+              {needsPasswordForSync && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (syncPassword) void handleCheckEmailConfirmed(syncPassword);
+                  }}
+                  className="pt-3 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
+                >
+                  <input
+                    type="password"
+                    value={syncPassword}
+                    onChange={(e) => setSyncPassword(e.target.value)}
+                    placeholder="Enter your account password to sync this browser"
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-white/[0.04] border border-white/15 text-xs text-white outline-none focus:border-emerald-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!syncPassword || isCheckingConfirmation}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider disabled:opacity-50"
+                  >
+                    {isCheckingConfirmation ? 'Syncing…' : 'Sync Verified Account'}
+                  </button>
+                </form>
+              )}
             </div>
           )}
 
@@ -468,7 +633,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
                     {athleteVerificationStatus === 'pending'
                       ? 'An administrator has paused your full access. You keep every Beginner pose. Contact support if you think this is a mistake.'
-                      : 'Unlock Intermediate and Advanced poses plus the full AI camera. You keep every Beginner pose either way, and this unlocks instantly — nobody has to approve it.'}
+                      : user.emailVerified === false
+                        ? 'Requirement: Confirm your email address above to unlock Intermediate & Advanced cheer stunts.'
+                        : 'Requirement met! Your email is verified. Tap below to unlock Intermediate & Advanced stunts.'}
                   </p>
                   {athleteVerificationNotice && (
                     <p className="text-[11px] text-emerald-300 mt-2 leading-relaxed">{athleteVerificationNotice}</p>
@@ -495,6 +662,34 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </div>
             </div>
           )}
+
+          {/* Skill Progression Tier Banner */}
+          <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-950/40 via-[#0d0d14]/90 to-purple-950/30 border border-white/10 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                <Trophy className="w-6 h-6 text-amber-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white">Cheer Skill Progression</h3>
+                  <span className={`text-[10px] uppercase font-black tracking-wider px-2.5 py-0.5 rounded-full border ${skillLevel.badgeClass}`}>
+                    {skillLevel.label}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-0.5">{skillLevel.description}</p>
+              </div>
+            </div>
+            <div className="text-left sm:text-right shrink-0">
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">Mastery Requirement</p>
+              <p className="text-xs font-mono text-indigo-300 font-bold">
+                {skillLevel.level === 3
+                  ? 'Maximum Skill Level Achieved'
+                  : skillLevel.level === 2
+                    ? 'Goal: 6+ Mastered Poses & 85%+ Avg'
+                    : 'Goal: 3+ Mastered Poses & 75%+ Avg'}
+              </p>
+            </div>
+          </div>
 
           {/* Key Metric Highlights Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -575,48 +770,52 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </div>
 
               <div className="space-y-4">
-                {poses.slice(0, 4).map((pose) => (
-                  <div
-                    key={pose.id}
-                    onClick={() => onStartPracticeWithPoseId(pose.id)}
-                    className="p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 transition-all cursor-pointer group"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-300 font-black text-xs">
-                          {pose.name.charAt(0)}
+                {topPoses.slice(0, 4).map((pose) => {
+                  const stats = poseStatsById.get(pose.id);
+                  const attempts = stats?.attempts ?? 0;
+                  return (
+                    <div
+                      key={pose.id}
+                      onClick={() => onStartPracticeWithPoseId(pose.id)}
+                      className="p-3.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-300 font-black text-xs">
+                            {pose.name.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">
+                              {pose.name}
+                            </p>
+                            <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">
+                              {pose.category} • {pose.difficulty} • {attempts} {attempts === 1 ? 'Attempt' : 'Attempts'}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">
-                            {pose.name}
-                          </p>
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">
-                            {pose.category} • {pose.difficulty}
+
+                        <div className="text-right">
+                          <span className="text-xs font-black text-white">{pose.masteryPercentage}%</span>
+                          <span className="block text-[9px] text-zinc-500">
+                            {pose.masteryPercentage >= MASTERY_THRESHOLD ? 'Mastered' : 'In Progress'}
                           </span>
                         </div>
                       </div>
 
-                      <div className="text-right">
-                        <span className="text-xs font-black text-white">{pose.masteryPercentage}%</span>
-                        <span className="block text-[9px] text-zinc-500">
-                          {pose.masteryPercentage >= MASTERY_THRESHOLD ? 'Mastered' : 'In Progress'}
-                        </span>
+                      {/* Progress Bar */}
+                      <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            pose.masteryPercentage >= MASTERY_THRESHOLD
+                              ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                              : 'bg-gradient-to-r from-indigo-500 to-purple-500'
+                          }`}
+                          style={{ width: `${pose.masteryPercentage}%` }}
+                        />
                       </div>
                     </div>
-
-                    {/* Progress Bar */}
-                    <div className="w-full h-1.5 rounded-full bg-white/5 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          pose.masteryPercentage >= MASTERY_THRESHOLD
-                            ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
-                            : 'bg-gradient-to-r from-indigo-500 to-purple-500'
-                        }`}
-                        style={{ width: `${pose.masteryPercentage}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -634,7 +833,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 </div>
 
                 <div className="space-y-3">
-                  {achievements.slice(0, 3).map((ach) => (
+                  {sortedAchievements.slice(0, 3).map((ach) => (
                     <div
                       key={ach.id}
                       className="p-3 rounded-2xl bg-white/[0.03] border border-white/5 flex items-center gap-3"
@@ -692,6 +891,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {poses.map((pose) => {
               const isMastered = pose.masteryPercentage >= MASTERY_THRESHOLD;
+              const stats = poseStatsById.get(pose.id);
+              const attempts = stats?.attempts ?? 0;
+              const lastPracticed = stats?.lastPracticedLabel ?? 'Not practiced yet';
               return (
                 <div
                   key={pose.id}
@@ -732,7 +934,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                     </p>
 
                     {/* Progress Track */}
-                    <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden mb-4">
+                    <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden mb-3">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${
                           isMastered
@@ -741,6 +943,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                         }`}
                         style={{ width: `${pose.masteryPercentage}%` }}
                       />
+                    </div>
+
+                    {/* Attempts & Last Practiced */}
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-3 px-0.5">
+                      <span>
+                        Attempts: <strong className="text-white font-mono">{attempts}</strong>
+                      </span>
+                      <span>
+                        Last Practiced: <strong className="text-zinc-200">{lastPracticed}</strong>
+                      </span>
                     </div>
                   </div>
 
@@ -885,83 +1097,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </div>
       )}
 
-      {/* Edit Profile Modal */}
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#0e0e14] border border-white/10 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl relative animate-fade-in-up">
-            <button
-              onClick={() => setShowEditModal(false)}
-              className="absolute top-4 right-4 text-zinc-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="mb-5">
-              <h3 className="text-lg font-black text-white">Edit Athlete Profile</h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Update your display name, specialty role, and email address.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveProfile} className="space-y-4">
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white"
-                  placeholder="e.g. Alex Morgan"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  Cheer Specialty / Role
-                </label>
-                <input
-                  type="text"
-                  value={editRole}
-                  onChange={(e) => setEditRole(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white"
-                  placeholder="e.g. Top Flyer"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-white/5 border border-white/10 focus:border-indigo-500 focus:outline-none rounded-xl text-xs text-white"
-                  placeholder="athlete@example.com"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(false)}
-                  className="py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-zinc-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-90 text-white text-xs font-bold shadow-lg shadow-indigo-600/30"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -19,8 +19,11 @@ export const useResendVerification = (email: string) => {
     try {
       await supabaseResendConfirmation(email);
       setStatus('Verification email sent. Check your inbox (and spam folder).');
+      return { ok: true };
     } catch (err) {
-      setError(describeAuthError(err));
+      const msg = describeAuthError(err);
+      setError(msg);
+      return { ok: false, error: msg };
     } finally {
       setIsSending(false);
     }

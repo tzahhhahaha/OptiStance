@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { requestVerification } from '../../services/supabaseApi';
+import {
+  checkAndCompleteEmailConfirmation,
+  requestVerification,
+} from '../../services/supabaseApi';
 import type { UserProfile, VerificationStatus } from '../types';
 import { describeAuthError } from '../utils/authErrors';
 
@@ -29,6 +32,25 @@ export const useAthleteVerification = (
   const request = async () => {
     setError(null);
     setNotice(null);
+
+    // Condition 1: Athlete email must be verified first.
+    // If the user clicked the confirmation link in their email app (which may
+    // have opened another browser or redirected to localhost), check with
+    // Supabase first before blocking.
+    if (!user.emailVerified) {
+      setIsRequesting(true);
+      const checkRes = await checkAndCompleteEmailConfirmation(user.email);
+      setIsRequesting(false);
+      if (checkRes.confirmed) {
+        onUpdateUser({ emailVerified: true });
+      } else {
+        setError(
+          'Email verification required: Please confirm your email address above before unlocking Intermediate & Advanced poses.'
+        );
+        return;
+      }
+    }
+
     setIsRequesting(true);
     try {
       const next = await requestVerification();

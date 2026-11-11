@@ -1,263 +1,284 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, Bell, Database, Zap, Save, RotateCcw } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Database, HardDrive, Info, RefreshCw, Wifi, WifiOff, Trash2 } from 'lucide-react';
 import { mediaService } from '../../../services/supabaseService';
 import packageJson from '../../../../package.json';
 
-const SETTINGS_KEY = 'optistance_admin_settings';
+/** localStorage keys this app owns. Used only for the local-data summary. */
+const APP_KEY_PREFIX = 'optistance_';
 
-const DEFAULT_SETTINGS = {
-  emailNotifications: true,
-  debugMode: false,
-  dataBackup: true,
-  maxUploadSize: '500',
-  scoringMode: 'icu',
-  audioFeedback: true,
+interface LocalUsage {
+  keys: { name: string; bytes: number }[];
+  totalBytes: number;
+}
+
+/** Size of every app-owned localStorage entry, biggest first. */
+const readLocalUsage = (): LocalUsage => {
+  const keys: { name: string; bytes: number }[] = [];
+  let totalBytes = 0;
+
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const name = localStorage.key(i);
+    if (name === null || !name.startsWith(APP_KEY_PREFIX)) continue;
+    const bytes = (localStorage.getItem(name) ?? '').length * 2; // UTF-16 code units
+    keys.push({ name, bytes });
+    totalBytes += bytes;
+  }
+
+  return { keys: keys.sort((a, b) => b.bytes - a.bytes), totalBytes };
 };
 
-type AdminSettings = typeof DEFAULT_SETTINGS;
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
 
-const loadSettings = (): AdminSettings => {
-  try {
-    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
-    return stored ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS;
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+/** Human labels for the local keys, so the list is not just identifiers. */
+const KEY_LABELS: Record<string, string> = {
+  optistance_auth_user: 'Signed-in account',
+  optistance_is_authenticated: 'Auth flag',
+  optistance_user: 'Profile cache',
+  optistance_sessions: 'Practice history (unscoped)',
+  optistance_settings: 'Display preferences',
+  optistance_pending_sessions: 'Sessions queued for upload',
+  optistance_admin_settings: 'Legacy admin toggles (unused)',
 };
 
 export default function DarkAdminSettings() {
-  const [settings, setSettings] = useState<AdminSettings>(loadSettings);
-  const [saved, setSaved] = useState(false);
   const [storageUsed, setStorageUsed] = useState<string>('—');
+  const [storageError, setStorageError] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [local, setLocal] = useState<LocalUsage>({ keys: [], totalBytes: 0 });
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [cleared, setCleared] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const bytes = await mediaService.getTotalStorageUsage();
-        if (!cancelled) {
-          const mb = bytes / (1024 * 1024);
-          setStorageUsed(mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`);
-        }
-      } catch {
-        if (!cancelled) setStorageUsed('Unavailable');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadStorage = useCallback(async () => {
+    setStorageError(false);
+    try {
+      const bytes = await mediaService.getTotalStorageUsage();
+      setStorageUsed(formatBytes(bytes));
+    } catch {
+      setStorageUsed('Unavailable');
+      setStorageError(true);
+    }
   }, []);
 
-  const handleToggle = (key: string) => {
-    setSettings(prev => ({ ...prev, [key]: !prev[key] }));
-    setSaved(false);
+  useEffect(() => {
+    setLocal(readLocalUsage());
+    void loadStorage();
+
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, [loadStorage]);
+
+  const clearLocalData = () => {
+    const doomed = Object.keys(localStorage).filter((k) => k.startsWith(APP_KEY_PREFIX));
+    for (const key of doomed) localStorage.removeItem(key);
+    setLocal(readLocalUsage());
+    setConfirmingClear(false);
+    setCleared(true);
   };
 
-  const handleChange = (key: string, value: string) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setSaved(false);
-  };
-
-  const handleSave = () => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const resetSettings = () => {
-    setSettings(DEFAULT_SETTINGS);
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(DEFAULT_SETTINGS));
-    setSaved(false);
-  };
-
-  const settingGroups = [
-    {
-      title: 'Notifications',
-      icon: Bell,
-      items: [
-        {
-          key: 'emailNotifications',
-          label: 'Email Notifications',
-          description: 'Receive email alerts for important events',
-          type: 'toggle' as const,
-        },
-      ],
-    },
-    {
-      title: 'Scoring & Performance',
-      icon: Zap,
-      items: [
-        {
-          key: 'scoringMode',
-          label: 'Scoring Mode',
-          description: 'Select how pose accuracy is calculated',
-          type: 'select' as const,
-          options: ['icu', 'percentage', 'hybrid'],
-        },
-        {
-          key: 'audioFeedback',
-          label: 'Audio Feedback',
-          description: 'Enable voice coaching cues during practice',
-          type: 'toggle' as const,
-        },
-      ],
-    },
-    {
-      title: 'Storage & Database',
-      icon: Database,
-      items: [
-        {
-          key: 'maxUploadSize',
-          label: 'Max Upload Size (MB)',
-          description: 'Maximum file size for video uploads',
-          type: 'input' as const,
-        },
-        {
-          key: 'dataBackup',
-          label: 'Automatic Backups',
-          description: 'Automatically backup database daily',
-          type: 'toggle' as const,
-        },
-      ],
-    },
-    {
-      title: 'Development',
-      icon: Settings,
-      items: [
-        {
-          key: 'debugMode',
-          label: 'Debug Mode',
-          description: 'Enable detailed logging and debugging tools',
-          type: 'toggle' as const,
-        },
-      ],
-    },
-  ];
+  const backendConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL);
 
   return (
     <div className="space-y-6 max-w-4xl">
-      {/* Header */}
       <div>
-        <h3 className="text-2xl font-black text-white tracking-tight">Settings & Configuration</h3>
-        <p className="text-sm text-zinc-400 mt-1">Manage platform settings, notifications, and system configuration</p>
+        <h3 className="text-2xl font-black text-white tracking-tight">System</h3>
+        <p className="text-sm text-zinc-400 mt-1">
+          What this build is connected to, and what it can actually do
+        </p>
       </div>
 
-      {/* Settings Sections */}
-      {settingGroups.map((group, groupIdx) => {
-        const GroupIcon = group.icon;
-        return (
-          <div key={groupIdx} className="space-y-3">
-            {/* Section Header */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-rose-500/20 border border-white/[0.08] flex items-center justify-center">
-                <GroupIcon className="w-5 h-5 text-indigo-400" />
-              </div>
-              <h4 className="text-sm font-bold text-white uppercase tracking-wider">{group.title}</h4>
-            </div>
+      {/*
+        The old page offered six toggles — email notifications, scoring mode,
+        audio feedback, upload size, automatic backups, debug mode — all saved
+        to a localStorage key that no other file in the project ever read.
+        Flipping any of them changed nothing anywhere, including for the next
+        admin to sign in on the same device. Rather than keep a settings page
+        that lies, this one reports verifiable state only.
 
-            {/* Settings Items */}
-            <div className="space-y-3">
-              {group.items.map((item, itemIdx) => (
-                <div
-                  key={itemIdx}
-                  className="bg-gradient-to-br from-white/[0.05] to-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08] hover:border-white/[0.12] transition-all"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <p className="text-sm font-bold text-white">{item.label}</p>
-                      <p className="text-xs text-zinc-500 mt-1">{item.description}</p>
-                    </div>
+        Platform-wide policies (scoring weights, upload limits, backups) are not
+        configurable from the app because they are not implemented at all; the
+        upload limit in particular is a hardcoded constant in
+        services/poseImages.ts. Making them configurable needs a settings table
+        and a server-side consumer, which is a backend task, not a UI one.
+      */}
 
-                    {/* Controls */}
-                    <div className="ml-6">
-                      {item.type === 'toggle' && (
-                        <button
-                          onClick={() => handleToggle(item.key)}
-                          className={`relative w-14 h-7 rounded-full transition-all ${
-                            settings[item.key as keyof typeof settings] ? 'bg-emerald-500/30 border-emerald-500/50' : 'bg-white/[0.05] border-white/[0.08]'
-                          } border`}
-                        >
-                          <div
-                            className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-lg transition-transform ${
-                              settings[item.key as keyof typeof settings] ? 'translate-x-7' : 'translate-x-1'
-                            }`}
-                          />
-                        </button>
-                      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Fact
+          icon={Info}
+          label="App Version"
+          value={packageJson.version || '—'}
+          hint="From package.json"
+        />
+        <Fact
+          icon={Database}
+          label="Backend"
+          value={backendConfigured ? 'Supabase (configured)' : 'Not configured'}
+          hint={
+            backendConfigured
+              ? 'RLS decides what this session can read.'
+              : 'Set VITE_SUPABASE_URL to enable sync.'
+          }
+          tone={backendConfigured ? 'ok' : 'warn'}
+        />
+        <Fact
+          icon={isOnline ? Wifi : WifiOff}
+          label="Connection"
+          value={isOnline ? 'Online' : 'Offline'}
+          hint={isOnline ? 'Reconnects automatically.' : 'Showing cached data only.'}
+          tone={isOnline ? 'ok' : 'warn'}
+        />
+        <Fact
+          icon={HardDrive}
+          label="Media Storage"
+          value={storageUsed}
+          hint={
+            storageError
+              ? 'Could not read storage usage — check the media bucket policy.'
+              : 'Pose reference images'
+          }
+          tone={storageError ? 'warn' : 'neutral'}
+        />
+      </div>
 
-                      {item.type === 'select' && (
-                        <select
-                          value={String(settings[item.key as keyof typeof settings])}
-                          onChange={(e) => handleChange(item.key, e.target.value)}
-                          className="px-3 py-2 rounded-lg bg-white/[0.05] border border-white/[0.08] text-white text-sm font-medium focus:outline-none focus:border-indigo-500/50 cursor-pointer"
-                        >
-                          {item.options?.map((opt) => (
-                            <option key={opt} value={opt} className="bg-[#0d0d12] text-white">
-                              {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-
-                      {item.type === 'input' && (
-                        <input
-                          type="text"
-                          value={String(settings[item.key as keyof typeof settings])}
-                          onChange={(e) => handleChange(item.key, e.target.value)}
-                          className="px-3 py-2 rounded-lg bg-white/[0.05] border border-white/[0.08] text-white text-sm font-medium w-24 focus:outline-none focus:border-indigo-500/50"
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* System Info */}
-      <div className="bg-gradient-to-br from-white/[0.05] to-white/[0.02] backdrop-blur-xl rounded-2xl p-6 border border-white/[0.08]">
-        <h4 className="text-sm font-bold text-white uppercase tracking-wider mb-4">System Information</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[...[
-            { label: 'App Version', value: packageJson.version || '—' },
-            {
-              label: 'Backend',
-              value: import.meta.env.VITE_SUPABASE_URL ? 'Supabase (configured)' : 'Supabase (not configured)',
-            },
-            { label: 'Connection', value: navigator.onLine ? 'Online' : 'Offline' },
-            { label: 'Storage Used', value: storageUsed },
-          ]].map((info, idx) => (
-            <div key={idx} className="bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
-              <p className="text-xs text-zinc-500 font-medium mb-1">{info.label}</p>
-              <p className="text-sm font-bold text-white">{info.value}</p>
-            </div>
-          ))}
+      {/* Local device data — real, and clearable. */}
+      <section className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h4 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-white">
+            <HardDrive className="h-4 w-4 text-indigo-400" />
+            Cached on this device
+          </h4>
+          <button
+            onClick={() => setLocal(readLocalUsage())}
+            className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-zinc-300 transition-all hover:bg-white/[0.1]"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Recheck
+          </button>
         </div>
-      </div>
 
-      {/* Action Buttons */}
-      <div className="flex gap-3 pt-4 border-t border-white/[0.08]">
-        <button
-          onClick={handleSave}
-          className={`flex-1 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
-            saved
-              ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/50'
-              : 'bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white border border-indigo-500/50'
-          }`}
-        >
-          <Save className="w-4 h-4" />
-          {saved ? 'Saved!' : 'Save Settings'}
-        </button>
-        <button
-          onClick={resetSettings}
-          className="px-6 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-300 hover:text-white font-bold transition-all flex items-center gap-2"
-        >
-          <RotateCcw className="w-4 h-4" />
-          Reset
-        </button>
-      </div>
+        <p className="mb-4 text-xs leading-relaxed text-zinc-500">
+          Display preferences and the sign-in cache live here, scoped per account.
+          Server records are not affected. On a shared or kiosk device this is
+          worth clearing between users.
+        </p>
+
+        {local.keys.length === 0 ? (
+          <p className="text-xs text-zinc-500">Nothing cached for this device.</p>
+        ) : (
+          <ul className="divide-y divide-white/[0.05]">
+            {local.keys.map((entry) => (
+              <li
+                key={entry.name}
+                className="flex items-center justify-between gap-3 py-2.5 text-xs"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-zinc-200">
+                    {KEY_LABELS[entry.name] ?? entry.name}
+                  </p>
+                  <p className="truncate text-[10px] text-zinc-600">{entry.name}</p>
+                </div>
+                <span className="shrink-0 tabular-nums text-zinc-400">
+                  {formatBytes(entry.bytes)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="mt-3 text-xs text-zinc-500">
+          Total: <span className="font-bold text-white">{formatBytes(local.totalBytes)}</span>
+        </p>
+
+        {cleared && (
+          <p
+            role="status"
+            className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200"
+          >
+            Local cache cleared. Sign-in state on this device was removed; server data is
+            untouched.
+          </p>
+        )}
+
+        {local.keys.length > 0 && (
+          <div className="mt-4">
+            {confirmingClear ? (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4">
+                <p className="mb-3 text-xs text-rose-200">
+                  Clear all {local.keys.length} cached{' '}
+                  {local.keys.length === 1 ? 'entry' : 'entries'} on this device? You will
+                  be asked to sign in again. Nothing on the server is deleted.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={clearLocalData}
+                    className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-rose-500"
+                  >
+                    Clear cache
+                  </button>
+                  <button
+                    onClick={() => setConfirmingClear(false)}
+                    className="rounded-lg border border-white/[0.08] bg-white/[0.05] px-4 py-2 text-xs font-bold text-zinc-300 transition-colors hover:bg-white/[0.1]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setConfirmingClear(true);
+                  setCleared(false);
+                }}
+                className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs font-bold text-rose-300 transition-all hover:bg-rose-500/20"
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear cached data
+              </button>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Fact({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone = 'neutral',
+}: {
+  icon: typeof Info;
+  label: string;
+  value: string;
+  hint: string;
+  tone?: 'neutral' | 'ok' | 'warn';
+}) {
+  const valueClass =
+    tone === 'ok'
+      ? 'text-emerald-400'
+      : tone === 'warn'
+        ? 'text-amber-400'
+        : 'text-white';
+
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+      <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </p>
+      <p className={`text-sm font-bold ${valueClass}`}>{value}</p>
+      <p className="mt-1 text-[11px] leading-relaxed text-zinc-600">{hint}</p>
     </div>
   );
 }

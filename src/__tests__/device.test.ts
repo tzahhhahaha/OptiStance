@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   detectDevice,
+  getBrowserCameraAvailabilityError,
   getCameraConstraints,
   getRecommendedCameraFacing,
   isCapacitorNative,
@@ -120,5 +121,20 @@ describe('getCameraConstraints', () => {
     setUserAgent(ANDROID_PHONE_UA);
     const video = getCameraConstraints().video as MediaTrackConstraints;
     expect(video.facingMode).toBe('environment');
+  });
+});
+
+describe('getBrowserCameraAvailabilityError', () => {
+  it('explains why HTTP network addresses cannot open the camera', () => {
+    expect(getBrowserCameraAvailabilityError(false, false)).toContain('does not consider this page secure');
+    expect(getBrowserCameraAvailabilityError(false, true)).toContain('embedded preview');
+  });
+
+  it('explains when a secure browser lacks camera support', () => {
+    expect(getBrowserCameraAvailabilityError(true, false)).toContain('does not provide camera access');
+  });
+
+  it('allows camera startup in a secure context with getUserMedia', () => {
+    expect(getBrowserCameraAvailabilityError(true, true)).toBeNull();
   });
 });

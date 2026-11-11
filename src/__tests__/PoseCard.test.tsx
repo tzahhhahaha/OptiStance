@@ -46,8 +46,14 @@ describe('PoseCard', () => {
 
   it('shows the lock overlay + "Verify to Unlock" when locked', () => {
     renderCard({ isLocked: true });
-    expect(screen.getByText('Verify to Unlock')).toBeTruthy();
+    expect(screen.getAllByText('Verify to Unlock').length).toBeGreaterThan(0);
     // No practice action while locked.
+    expect(screen.queryByText('Practice')).toBeNull();
+  });
+
+  it('shows verification guidance when an unverified user taps a non-beginner pose', () => {
+    renderCard({ isLocked: true });
+    expect(screen.getAllByText('Verify to Unlock').length).toBeGreaterThan(0);
     expect(screen.queryByText('Practice')).toBeNull();
   });
 

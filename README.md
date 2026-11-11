@@ -1,6 +1,6 @@
-# 🤸 Cheerleading Pose Trainer
+# 🤸 OptiStance — Cheerleading Pose Trainer
 
-A mobile-first web application that uses AI-powered pose detection to help cheerleaders perfect their poses, track progress, and improve technique through real-time feedback.
+A mobile-first web and Capacitor native application (iOS & Android) that uses AI-powered biomechanical pose and hand detection to help cheerleaders perfect their poses, track practice sessions, and improve technique through real-time ICU-aligned feedback. Offline AI inference and session queueing are supported in the installed native apps; the web version requires an internet connection.
 
 ![Status](https://img.shields.io/badge/status-active-success.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
@@ -10,398 +10,189 @@ A mobile-first web application that uses AI-powered pose detection to help cheer
 
 ## ✨ Features
 
-### 🎯 Real-time Pose Detection
-- **MediaPipe Integration** - 33-point body landmark tracking
-- **Live Feedback** - Instant accuracy scores and skeleton overlay
-- **Smart Fallback** - Demo mode when camera unavailable
+### 🎯 Real-time Biomechanical Pose & Hand Detection
+- **MediaPipe Pose Integration** - 33-point body landmark tracking (`modelComplexity: 0` lite model)
+- **MediaPipe Hands Integration** - 21-point hand landmark tracking for up to two hands
+- **100% Offline Inference** - Pose and hand WASM/TFLite assets are vendored locally into `public/mediapipe/` (`scripts/vendor-mediapipe.mjs`); no external CDN required at runtime
+- **Live Feedback & Audio Coaching** - Real-time joint angle telemetry, ICU compliance scoring, framing/lighting checks, and spoken coaching cues
+- **Pose-Specific Training Drills** - Browse drills from each pose detail page and get an offline recommendation after a scored attempt based on the largest joint deviation
+- **Image Upload & Branded Scorecards** - Analyze static photos and export shareable scorecards with skeleton overlays
 
-### 📚 Comprehensive Pose Library
-- **8 Cheerleading Poses** covering stunts, arm motions, jumps, and flexibility
-- **Difficulty Levels** - Beginner, Intermediate, Advanced
-- **Category Filtering** - Easy browsing by pose type
-- **Progress Tracking** - Monitor improvement for each pose
+### 📚 Comprehensive Pose Syllabus
+- **9 Bundled Cheerleading Poses**:
+  - **Beginner**: `T-Motion`, `High V`, `Low V`, `Half-T`
+  - **Intermediate**: `Liberty`, `Arabesque`
+  - **Advanced**: `Toe Touch`, `Heel Stretch`, `Scorpion`
+- **Admin-Managed Cloud Syllabus** - System Managers can create, edit, archive, restore, and upload custom reference images (`pose-images`) and tutorial videos (`pose-videos` / YouTube) via the Admin Console
+- **Verification Gating** - Guests and unverified accounts access Beginner poses; verified athletes unlock Intermediate and Advanced poses in real time
 
-### 📊 Progress Analytics
-- **Statistics Dashboard** - Poses mastered, practice days, average scores
-- **Activity Timeline** - Recent practice history
-- **Weekly Goals** - Track completion progress
-- **Achievement System** - Unlock badges and rewards
+### 📊 Progress Analytics & Offline Sync
+- **Per-Account Scoped Storage** - Local cache (`src/services/accountStorage.ts`) isolates practice history and mastery per user ID
+- **Native Offline Queue & Cloud Sync** - Sessions recorded offline in the installed iOS/Android apps are queued (`src/services/offlineSync.ts`) and automatically synced to Supabase when connectivity returns; web access requires internet
+- **Mastery & Milestones** - Poses reach mastery at `80%+` accuracy (`MASTERY_THRESHOLD`), with local notifications for milestones and pending sync reminders
 
-### 🔐 Secure Authentication
-- **User Accounts** - Sign up and login
-- **ISO 25010 Compliant** - Security and privacy standards
-- **Session Management** - Persistent login state
-
-### 🎨 Modern Mobile UI
-- **Purple Gradient Theme** - Eye-catching design
-- **Responsive Layout** - Optimized for mobile devices
-- **Smooth Animations** - Polished user experience
-- **Intuitive Navigation** - Bottom nav + hamburger menu
+### 🔐 Authentication & Role-Based Security
+- **Supabase Auth + RLS** - Email/password sign-up, login, frictionless onboarding, and "Continue as Guest" mode
+- **System Manager Console** - Dedicated dark-themed Admin Console (`DarkAdminPage.tsx`) for managing users, stunt syllabus, ICU joint angle standards, analytics, and support tickets
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+ 
-- pnpm (recommended) or npm
+- Node.js 20.x, 22.x, or 24+ (Node versions supported by the installed Vitest release)
+- npm or pnpm
 
-### Installation
+### Installation & Local Development
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd code
-
 # Install dependencies
-pnpm install
+npm install
 
-# Start development server
-pnpm run dev
+# Configure environment variables (optional for guest/offline mode, required for cloud features)
+cp .env.example .env.local
+
+# Start development server (automatically runs vendor:mediapipe via predev)
+npm run dev
 
 # Open browser
 # Navigate to http://localhost:5173
 ```
 
-### First Time Setup
+### Native Mobile Builds (Capacitor)
 
-1. **Allow Camera Permissions** - Click "Allow" when prompted
-2. **Sign Up** - Create a new account
-3. **Start Practicing** - Browse poses and click "Start Practice"
+```bash
+# Build web assets, vendor MediaPipe, sync Capacitor, and open IDE
+npm run build:android
+npm run build:ios
+```
 
----
-
-## 📱 Screenshots
-
-### Authentication
-- Clean login/signup interface
-- Password visibility toggle
-- Form validation
-
-### Home Dashboard
-- Weekly progress circular chart
-- Quick stats (poses, days, score)
-- Daily practice recommendations
-- Quick action shortcuts
-
-### Pose Library
-- Search and filter functionality
-- Visual progress indicators
-- Difficulty badges
-- Detailed pose information
-
-### Camera Interface
-- Real-time skeleton overlay
-- Live accuracy percentage
-- Control buttons (upload, flip, timer, flash)
-- Results screen with detailed feedback
-
-### Profile
-- User statistics
-- Recent activity timeline
-- Weekly goal tracker
-- Achievement badges
+See [NATIVE_APP_SETUP.md](NATIVE_APP_SETUP.md) and [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for full platform and backend configuration details.
 
 ---
 
 ## 🏗️ Tech Stack
 
-### Frontend
-- **React 18.3.1** - UI library
-- **TypeScript** - Type safety
-- **Tailwind CSS 4.1** - Utility-first styling
-- **Vite 6.3** - Fast build tool
+### Frontend & Mobile
+- **React 18.3.1** + **TypeScript 5.9**
+- **Tailwind CSS 4.1** (`@tailwindcss/vite`)
+- **Vite 6.3** - Build tool with code-splitting for `AICameraScreen` and `DarkAdminPage`
+- **Capacitor 8** - Android & iOS native runtime (`@capacitor/camera`, `@capacitor/haptics`, `@capacitor/local-notifications`, `@capacitor/app`)
 
-### AI/ML
-- **MediaPipe Pose 0.5** - Pose detection
-- **MediaPipe Drawing Utils** - Visualization
-- **MediaPipe Camera Utils** - Camera handling
+### AI / Computer Vision
+- **`@mediapipe/pose` (0.5)** - 33-point body landmark detection
+- **`@mediapipe/hands` (0.4)** - 21-point hand tracking
+- **`@mediapipe/drawing_utils` & `@mediapipe/camera_utils`**
 
-### UI Components
-- **Lucide React** - Icon library
-- **Motion** - Animations
-- **React Router** - Navigation
+### Backend & Data
+- **Supabase (`@supabase/supabase-js` 2.x)** - PostgreSQL database, Authentication, Row-Level Security (RLS), Realtime subscriptions, and Storage (`pose-images`, `pose-videos`)
+
+### UI & Testing
+- **Lucide React** - Icons
+- **Radix UI / shadcn/ui** - Accessible UI primitives
+- **Recharts** - Analytics charts
+- **Vitest + React Testing Library** - Unit and integration test suite
 
 ---
 
 ## 📂 Project Structure
 
-```
+```text
 src/
 ├── app/
-│   ├── App.tsx                 # Main app component
-│   └── components/
-│       ├── LoginPage.tsx       # Authentication
-│       ├── SignupPage.tsx      # Registration
-│       ├── HomePage.tsx        # Dashboard
-│       ├── PosePage.tsx        # Pose library
-│       ├── ProfilePage.tsx     # User profile
-│       ├── CameraView.tsx      # Camera + AI detection
-│       ├── SettingsPage.tsx    # Settings & privacy
-│       ├── AboutPage.tsx       # App information
-│       ├── HelpPage.tsx        # Tutorials & FAQs
-│       ├── BottomNav.tsx       # Main navigation
-│       ├── HamburgerMenu.tsx   # Side menu
-│       └── CameraButton.tsx    # Floating action button
+│   ├── App.tsx                           # Root application state, auth resolution & tab routing
+│   ├── types.ts                          # Core TypeScript interfaces (Pose, PracticeSession, UserProfile, AppSettings)
+│   ├── data/
+│   │   └── poses.ts                      # 9 bundled poses (INITIAL_POSES)
+│   ├── scoring/
+│   │   ├── angles.ts                     # Biomechanical joint angle math
+│   │   ├── standards.ts                  # ICU joint angle targets & tolerances
+│   │   ├── scorePose.ts                  # Real-time pose scoring engine
+│   │   ├── jumpPeak.ts                   # Jump apex detection (Toe Touch)
+│   │   └── drawTelemetry.ts              # Skeleton/hand canvas rendering & scorecard export
+│   ├── components/
+│   │   ├── AuthScreen.tsx                # Login, sign-up, password reset & guest entry
+│   │   ├── Header.tsx                    # Top app bar with mastery counter & profile trigger
+│   │   ├── BottomNavBar.tsx              # Bottom navigation (Library, AI Scan, History)
+│   │   ├── NavigationDrawer.tsx          # Side drawer (Profile, Preferences, Help, About, Admin)
+│   │   ├── PoseLibraryScreen.tsx         # Pose syllabus grid/list, search & category filters
+│   │   ├── PoseDetailScreen.tsx          # Pose breakdown, ideal angles, tips & tutorial video
+│   │   ├── PoseCard.tsx / PoseList.tsx   # Pose display components with verification lock badges
+│   │   ├── AICameraScreen.tsx            # Live camera, MediaPipe inference, photo upload & summary
+│   │   ├── SessionHistoryScreen.tsx      # Practice session log & telemetry history
+│   │   ├── ProfileScreen.tsx             # Athlete stats, verification request & account settings
+│   │   ├── SettingsScreen.tsx            # Theme, language, audio cues, notifications & camera prefs
+│   │   ├── HelpSupportScreen.tsx         # FAQs & Supabase support ticket submission
+│   │   ├── AboutScreen.tsx               # App overview & ICU compliance info
+│   │   ├── DarkAdminPage.tsx             # System Manager console (lazy-loaded)
+│   │   └── admin/                        # Admin tabs (Users, Content, Analytics, Settings, PoseVideoInput)
+│   ├── hooks/                            # Custom hooks (verification, service worker updates)
+│   └── utils/                            # Offline MediaPipe loader, localization, audio, haptics, framing
+├── services/
+│   ├── supabaseService.ts                # Supabase client & typed table services
+│   ├── supabaseApi.ts                    # Auth, verification, session merge & admin RPC wrappers
+│   ├── offlineSync.ts                    # Offline practice session queue & background uploader
+│   ├── accountStorage.ts                 # Per-account namespaced localStorage cache
+│   └── poseImages.ts                     # Admin pose image & video upload helpers
 ├── styles/
-│   ├── theme.css              # Design system
-│   └── fonts.css              # Typography
-└── imports/                   # Static assets
-```
-
----
-
-## 🎯 Usage
-
-### 1. Authentication
-```
-Login Page → Enter credentials → Home
-            ↓
-      New user? Sign Up
-```
-
-### 2. Practice a Pose
-```
-Home/Pose Library → Select pose → View details → Start Practice
-                                                      ↓
-                                            Camera opens
-                                                      ↓
-                                        Position yourself
-                                                      ↓
-                                    Real-time feedback
-                                                      ↓
-                                    Capture & analyze
-                                                      ↓
-                                        View results
-```
-
-### 3. Track Progress
-```
-Practice poses → Data saved → Profile page → View stats & achievements
+│   ├── index.css                         # Light/dark theme rules & glassmorphic surfaces
+│   ├── theme.css                         # Design system CSS variables
+│   ├── globals.css / tailwind.css        # Base Tailwind setup
+│   └── fonts.css                         # Typography
+└── __tests__/                            # Vitest unit & integration test suites
 ```
 
 ---
 
 ## 🔧 Configuration
 
-### MediaPipe Settings
-Adjust in `src/app/components/CameraView.tsx`:
+### Offline MediaPipe Settings
+MediaPipe assets are vendored automatically before `npm run dev` and `npm run build` via `scripts/vendor-mediapipe.mjs` and resolved by `src/app/utils/mediapipeAssets.ts`:
 
 ```typescript
+const pose = new MediaPipePose({
+  locateFile: mediapipeLocateFile, // resolves to /mediapipe/pose/<file>
+});
+
 pose.setOptions({
-  modelComplexity: 1,           // 0=Lite, 1=Full, 2=Heavy
-  smoothLandmarks: true,        // Smooth jitter
-  minDetectionConfidence: 0.5,  // Detection threshold
-  minTrackingConfidence: 0.5,   // Tracking threshold
-});
-```
-
-### Video Quality
-```typescript
-getUserMedia({
-  video: {
-    facingMode: 'user',        // 'user' or 'environment'
-    width: { ideal: 1280 },
-    height: { ideal: 720 }
-  }
+  modelComplexity: 0,           // 0 = lite (matches vendored pose_landmark_lite.tflite)
+  smoothLandmarks: true,
+  enableSegmentation: false,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5,
 });
 ```
 
 ---
 
-## 🎨 Customization
+## 🧪 Testing & QA
 
-### Theme Colors
-Edit `src/styles/theme.css`:
+```bash
+# Run unit & integration test suite
+npm test
 
-```css
-:root {
-  --primary: #9333ea;        /* Purple 600 */
-  --accent: #f3e8ff;         /* Purple 100 */
-  --success: #22c55e;        /* Green 500 */
-}
-```
+# Run linter
+npm run lint
 
-### Add New Poses
-Edit `src/app/components/PosePage.tsx`:
+# Run quick project structure QA check
+npm run qa
 
-```typescript
-const poses: Pose[] = [
-  {
-    id: '9',
-    name: 'Your Pose Name',
-    category: 'Stunts',
-    difficulty: 'Advanced',
-    progress: 0,
-    description: 'Pose description...'
-  },
-  // ... existing poses
-];
+# Run full CI pipeline (clean install, lint, test, build)
+npm run ci
 ```
 
 ---
 
-## 🧪 Testing
+## 📚 Documentation Index
 
-### Manual Testing Checklist
-- [ ] Login/signup flow
-- [ ] Camera permissions (allow/deny)
-- [ ] Pose detection accuracy
-- [ ] Navigation between pages
-- [ ] Mobile responsiveness
-- [ ] Settings interactions
-- [ ] Logout functionality
-
-### Browser Compatibility
-- ✅ Chrome 90+
-- ✅ Firefox 88+
-- ✅ Safari 14+
-- ✅ Edge 90+
-
-### Device Testing
-- ✅ iPhone (iOS 14+)
-- ✅ Android phones (Android 10+)
-- ✅ Tablets (iPad, Android)
+- **[SUPABASE_SETUP.md](SUPABASE_SETUP.md)** - Database schema, migrations, RLS policies, storage buckets, and test user scripts
+- **[NATIVE_APP_SETUP.md](NATIVE_APP_SETUP.md)** - Android & iOS Capacitor build and deployment workflow
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Developer quick reference for components, types, and scripts
+- **[DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)** - Onboarding guide for contributing to OptiStance
+- **[PROJECT_PLAN.md](PROJECT_PLAN.md)** - System architecture and feature specifications
+- **[README_QA.md](README_QA.md)** - Web, Android, and iOS QA checklist
+- **[README_SECURITY.md](README_SECURITY.md)** - Security model, RLS hardening, and token/storage practices
 
 ---
 
-## 📊 Performance
-
-### Targets
-- **Page Load**: < 2 seconds
-- **Camera FPS**: 30fps
-- **Detection Latency**: < 100ms
-- **Bundle Size**: < 500KB gzipped
-
-### Optimization Tips
-- Use production build for testing
-- Enable compression (gzip/brotli)
-- Lazy load routes
-- Optimize images
-
----
-
-## 🐛 Troubleshooting
-
-### Camera Not Working
-**Problem**: Camera shows demo mode  
-**Solutions**:
-1. Check browser permissions (click lock icon in address bar)
-2. Ensure HTTPS connection (required for camera access)
-3. Try different browser
-4. Verify camera is not in use by another app
-
-### Pose Detection Slow
-**Problem**: Laggy or low FPS  
-**Solutions**:
-1. Lower video resolution (720p → 480p)
-2. Reduce `modelComplexity` to 0
-3. Close other browser tabs
-4. Disable browser extensions
-
-### Login Not Working
-**Problem**: Cannot log in  
-**Solutions**:
-1. This is a demo - any email/password works
-2. Clear browser cache
-3. Check console for errors
-
-### Styling Issues
-**Problem**: UI looks broken  
-**Solutions**:
-1. Hard refresh (Ctrl+Shift+R)
-2. Clear browser cache
-3. Verify Tailwind CSS is loading
-
----
-
-## 🛣️ Roadmap
-
-### Phase 1: MVP ✅ (Current)
-- [x] Authentication
-- [x] Pose library (8 poses)
-- [x] Camera integration
-- [x] Real-time detection
-- [x] Progress tracking
-- [x] Settings/About/Help pages
-
-### Phase 2: Backend (Next)
-- [ ] User database
-- [ ] Save practice history
-- [ ] Cloud sync
-- [ ] API endpoints
-
-### Phase 3: Enhanced Features
-- [ ] Drill library with videos
-- [ ] Social sharing
-- [ ] Leaderboards
-- [ ] Push notifications
-
-### Phase 4: Advanced AI
-- [ ] Custom pose creation
-- [ ] Coach comparison mode
-- [ ] Frame-by-frame analysis
-- [ ] Voice feedback
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Code Style
-- Use TypeScript
-- Follow React best practices
-- Use Tailwind for styling
-- Add comments for complex logic
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 👥 Team
-
-- **Development Team** - Initial work and maintenance
-- **AI/ML Integration** - MediaPipe implementation
-- **UI/UX Design** - Mobile-first design
-
----
-
-## 🙏 Acknowledgments
-
-- **Google MediaPipe** - Amazing pose detection technology
-- **International Cheer Union (ICU)** - Cheerleading standards
-- **React Community** - Excellent ecosystem
-- **Tailwind Labs** - Beautiful utility-first CSS
-
----
-
-## 📞 Support
-
-- **Email**: support@cheerapp.com
-- **Documentation**: [PROJECT_PLAN.md](PROJECT_PLAN.md)
-- **Quick Reference**: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-
----
-
-## 📈 Stats
-
-![GitHub stars](https://img.shields.io/github/stars/username/repo?style=social)
-![GitHub forks](https://img.shields.io/github/forks/username/repo?style=social)
-![GitHub issues](https://img.shields.io/github/issues/username/repo)
-
----
-
-**Built with ❤️ for cheerleaders everywhere**
-
-*Last updated: May 12, 2026*
+*Last updated: October 27, 2026*

@@ -38,7 +38,7 @@ BEGIN
       'authenticated',
       'authenticated',
       'admin@optistance.com',
-      crypt('OptiStance2026!', gen_salt('bf')),
+      crypt('CHANGE_ME_IN_SUPABASE_DASHBOARD', gen_salt('bf')),
       now(),
       '{"provider":"email","providers":["email"]}',
       '{"full_name":"System Manager"}',

@@ -3,7 +3,11 @@ export const describeAuthError = (err: unknown): string => {
   const raw = err instanceof Error ? err.message : String(err ?? '');
   const lower = raw.toLowerCase();
 
-  if (lower.includes('rate limit') || lower.includes('too many')) {
+  if (
+    lower.includes('rate limit') ||
+    lower.includes('too many') ||
+    lower.includes('for security purposes')
+  ) {
     return "Email rate limit exceeded. Supabase's built-in email service only allows a few emails per hour — wait a few minutes and try again, or configure custom SMTP / turn off email confirmation in your Supabase project.";
   }
   if (lower.includes('not confirmed')) {

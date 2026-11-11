@@ -6,6 +6,10 @@ INSERT INTO stunts (name, category, difficulty_tier, description, coaching_cues,
 ('Scorpion', 'stunt', 'advanced', 'A flexibility-based stunt where the cheerleader is in a vertical position with one leg folded back toward the head', 'Core engagement, pointed toes, and full body extension required', 100, 85.0),
 ('T-Motion', 'pom_motion', 'intermediate', 'A pom motion where arms form a T shape, typically executed with sharp, clean arm movement', 'Crisp arm positions, locked elbows, and synchronized motion', 80, 80.0),
 ('High V', 'pom_motion', 'beginner', 'A fundamental arm position with both arms extended above the head in a V shape', 'Locked arms, shoulders relaxed, and proper hand positions', 60, 75.0),
+('Low V', 'pom_motion', 'beginner', 'A fundamental cheer motion with arms extended downward at 45 degrees forming an inverted V shape', 'Locked elbows, tight wrists with thumbs facing forward, shoulders depressed', 60, 75.0),
+('Half-T', 'pom_motion', 'beginner', 'Arms bent 90 degrees at elbows horizontally with fists positioned tightly toward chest in a compact line', 'Keep elbows parallel to shoulders and fists tight with thumbs facing front', 70, 75.0),
+('Toe Touch', 'jump', 'advanced', 'A premier cheer jump hitting maximum straddle apex elevation with rotated hips, pointed toes, and locked arms in a T-Motion', 'Snap through toes, rotate hips backward, keep chest lifted, and hit a sharp T', 100, 85.0),
+('Arabesque', 'stunt', 'intermediate', 'An elegant balance on one standing leg with the rear leg extended straight backward parallel to floor, chest lifted', 'Lock standing knee, square hips, and lift back leg to 90 degrees or higher', 90, 80.0),
 ('Heel Stretch', 'stunt', 'advanced', 'A vertical stunt where the flyer''s heel is held by the base, creating an elegant line from head to toe', 'Pointed toe extension, body alignment, and core strength', 95, 85.0),
 ('Full Down', 'tumbling', 'advanced', 'A tumbling skill involving a full twist while airborne', 'Height off floor, rotation speed, and landing control', 100, 85.0),
 ('Pike Jump', 'jump', 'intermediate', 'A jump where the athlete brings their knees up to the chest with pointed toes extended forward', 'Height, leg position, and landing form', 80, 80.0),
@@ -41,6 +45,22 @@ LIMIT 1;
 INSERT INTO joint_angle_standards (stunt_id, joint_name, target_angle, tolerance_min, tolerance_max, description) 
 SELECT id, 'wrist_neutral', 0, -10, 10, 'Wrist in neutral position'
 FROM stunts WHERE name = 'High V'
+LIMIT 1;
+
+-- Sample Joint Angle Standards (for Low V)
+INSERT INTO joint_angle_standards (stunt_id, joint_name, target_angle, tolerance_min, tolerance_max, description) 
+SELECT id, 'shoulder_depression_adduction', 45, 35, 55, 'Arms extended downward at 45° from coronal midline'
+FROM stunts WHERE name = 'Low V'
+LIMIT 1;
+
+INSERT INTO joint_angle_standards (stunt_id, joint_name, target_angle, tolerance_min, tolerance_max, description) 
+SELECT id, 'elbow_extension', 180, 175, 180, 'Elbows locked straight in full extension'
+FROM stunts WHERE name = 'Low V'
+LIMIT 1;
+
+INSERT INTO joint_angle_standards (stunt_id, joint_name, target_angle, tolerance_min, tolerance_max, description) 
+SELECT id, 'wrist_neutral', 0, -10, 10, 'Wrists aligned straight with forearm with thumb facing forward'
+FROM stunts WHERE name = 'Low V'
 LIMIT 1;
 
 -- Create sample admin and athlete users (if not using auth signup)

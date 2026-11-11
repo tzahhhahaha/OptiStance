@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS stunts (
   target_points INT DEFAULT 100,
   mastery_threshold FLOAT DEFAULT 80.0,
   is_archived BOOLEAN DEFAULT false,
+  is_locked BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

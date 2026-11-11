@@ -11,10 +11,6 @@ interface PoseListProps {
   onLockedPoseClick: (pose: Pose) => void;
 }
 
-/**
- * Responsive grid of PoseCards, applying the verification gating rule to each
- * card (unverified athletes get locked, non-beginner poses).
- */
 export const PoseList: React.FC<PoseListProps> = ({
   poses,
   isVerified,

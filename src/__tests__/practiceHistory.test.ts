@@ -85,6 +85,46 @@ describe('fetchServerPracticeSessions', () => {
     expect(session.feedbackSummary).not.toMatch(/local-session/);
   });
 
+  it('labels uploaded-image history rows without exposing the source marker', async () => {
+    rows = [
+      {
+        id: 'r-upload',
+        session_date: '2026-01-02T10:00:00.000Z',
+        duration_minutes: 1,
+        overall_accuracy: 70,
+        session_notes: 'Good hold! [source:uploaded-image] [local-session:sess-upload]',
+        stunts: { name: 'High V' },
+      },
+    ];
+
+    const [session] = await fetchServerPracticeSessions('u1');
+
+    expect(session.poseName).toBe('Uploaded Image');
+    expect(session.source).toBe('upload');
+    expect(session.feedbackSummary).toBe('Good hold!');
+  });
+
+  it('restores duplicate-upload metadata and strips internal markers from feedback', async () => {
+    rows = [
+      {
+        id: 'r-repeat',
+        session_date: '2026-01-02T10:00:00.000Z',
+        duration_minutes: 1,
+        overall_accuracy: 70,
+        session_notes:
+          'Good hold! [source:uploaded-image] [image-fingerprint:0123456789abcdef] [duplicate-upload] [local-session:sess-repeat]',
+        stunts: { name: 'High V' },
+      },
+    ];
+
+    const [session] = await fetchServerPracticeSessions('u1');
+
+    expect(session.source).toBe('upload');
+    expect(session.imageFingerprint).toBe('0123456789abcdef');
+    expect(session.isDuplicateUpload).toBe(true);
+    expect(session.feedbackSummary).toBe('Good hold!');
+  });
+
   it('gives rows without a marker a stable id, so a merge cannot duplicate them', async () => {
     rows = [
       {

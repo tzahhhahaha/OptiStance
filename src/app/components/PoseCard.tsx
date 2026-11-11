@@ -1,6 +1,7 @@
 import React from 'react';
 import { CheckCircle2, Lock, Play } from 'lucide-react';
 import { Pose, MASTERY_THRESHOLD } from '../types';
+import { translate as t } from '../utils/localization';
 
 interface PoseCardProps {
   pose: Pose;
@@ -10,13 +11,6 @@ interface PoseCardProps {
   onLockedClick: (pose: Pose) => void;
 }
 
-/**
- * A single pose card in the gallery. When `isLocked` (unverified athlete +
- * non-beginner pose), a semi-transparent overlay dims the card and shows a
- * lock + "Verify to Unlock". The overlay is `pointer-events-none` — clicks
- * fall through to the card, which routes them to `onLockedClick` so the
- * gallery can explain what verification unlocks.
- */
 export const PoseCard: React.FC<PoseCardProps> = ({
   pose,
   isLocked,
@@ -62,6 +56,13 @@ export const PoseCard: React.FC<PoseCardProps> = ({
           {pose.difficulty}
         </div>
 
+        {isLocked && (
+          <div className="absolute top-3 left-3 z-10 bg-amber-500 text-black border border-amber-300 font-black px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-lg">
+            <Lock className="w-3 h-3 stroke-[2.5]" />
+            <span>{t('Verify to Unlock')}</span>
+          </div>
+        )}
+
         {/* Category Pill on Image */}
         <div className="absolute bottom-3 left-3 bg-black/60 border border-white/20 backdrop-blur-md px-2.5 py-0.5 rounded-lg text-[10px] font-semibold text-white tracking-wide">
           {pose.category}
@@ -78,7 +79,7 @@ export const PoseCard: React.FC<PoseCardProps> = ({
             {isMastered && (
               <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Mastered
+                {t('Mastered')}
               </span>
             )}
           </div>
@@ -125,17 +126,17 @@ export const PoseCard: React.FC<PoseCardProps> = ({
             </div>
             <span className="text-xs font-medium text-zinc-400">
               {pose.masteryPercentage === 100
-                ? '100% Form'
+                ? t('100% Form')
                 : pose.masteryPercentage === 0
-                ? 'Not practiced'
-                : `${pose.masteryPercentage}% Form`}
+                ? t('Not practiced')
+                : `${pose.masteryPercentage}% ${t('Form')}`}
             </span>
           </div>
 
           {isLocked ? (
-            <span className="px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5">
+            <span className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5" />
-              <span>Locked</span>
+              <span>{t('Locked')}</span>
             </span>
           ) : (
             <button
@@ -146,23 +147,23 @@ export const PoseCard: React.FC<PoseCardProps> = ({
               className="px-4 py-2 rounded-xl bg-white text-black font-bold text-xs flex items-center gap-1.5 hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)]"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Practice</span>
+              <span>{t('Practice')}</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Verification lock overlay — dims the whole card. pointer-events-none so
-          clicks pass through to the card handler above. */}
       {isLocked && (
-        <div className="absolute inset-0 z-20 bg-black/55 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2 pointer-events-none">
-          <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center shadow-lg">
+        <div className="absolute inset-0 z-20 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center gap-2 pointer-events-none px-4 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shadow-lg">
             <Lock className="w-6 h-6 text-amber-300" />
           </div>
           <span className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-white">
-            Verify to Unlock
+            {t('Verify to Unlock')}
           </span>
-          <span className="text-[10px] text-zinc-300/80 font-medium">Intermediate & Advanced poses</span>
+          <span className="text-[10px] text-zinc-300/80 font-medium">
+            {t('Intermediate & Advanced poses')}
+          </span>
         </div>
       )}
     </div>

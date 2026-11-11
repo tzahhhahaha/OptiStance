@@ -17,7 +17,7 @@ export const pomMotionLibrary: PomMotion[] = [
     category: 'Stunts',
     progress: 0,
     difficulty: 'Advanced',
-    description: 'Stand on one leg with the other bent at 90°.',
+    description: 'Stand on one leg with the other bent at 90Â°.',
     cues: ['Balance on one leg', 'Lift the free leg to a bent position', 'Keep hips square'],
     standardHints: ['Standing leg is strong and straight', 'Free leg is bent and lifted to the side or front'],
     keyPoints: [
@@ -142,20 +142,6 @@ export const pomMotionLibrary: PomMotion[] = [
     ],
   },
   {
-    id: '9',
-    name: 'Clap',
-    category: 'Arm Motions',
-    progress: 0,
-    difficulty: 'Beginner',
-    description: 'Hands clap together in front of the body.',
-    cues: ['Bring hands together', 'Keep shoulders relaxed', 'Maintain posture'],
-    standardHints: ['Hands meet directly in front of the chest or face', 'Elbows remain soft and controlled'],
-    keyPoints: [
-      { name: 'leftWrist', target: 'left' },
-      { name: 'rightWrist', target: 'right' },
-    ],
-  },
-  {
     id: '10',
     name: 'Daggers',
     category: 'Arm Motions',
@@ -204,6 +190,24 @@ export const pomMotionLibrary: PomMotion[] = [
     ],
   },
   {
+    id: '13',
+    name: 'Toe Touch',
+    category: 'Jumps',
+    progress: 0,
+    difficulty: 'Advanced',
+    description: 'Jump into a wide straddle with straight legs and pointed toes.',
+    cues: ['Drive both legs out into a wide straddle', 'Keep both knees straight', 'Land softly with control'],
+    standardHints: ['Both legs extend wide and high', 'Keep the chest lifted and arms sharp'],
+    keyPoints: [
+      { name: 'leftHip', target: 'left' },
+      { name: 'rightHip', target: 'right' },
+      { name: 'leftKnee', target: 'left' },
+      { name: 'rightKnee', target: 'right' },
+      { name: 'leftAnkle', target: 'left' },
+      { name: 'rightAnkle', target: 'right' },
+    ],
+  },
+  {
     id: '14',
     name: 'Half T',
     category: 'Arm Motions',
@@ -238,7 +242,7 @@ export const pomMotionLibrary: PomMotion[] = [
 ];
 
 export interface LandmarkMap {
-  [key: number]: { x: number; y: number; z?: number };
+  [key: number]: { x: number; y: number; z?: number; visibility?: number };
 }
 
 export function calculateJointAngle(
@@ -285,20 +289,150 @@ function getLandmark(landmarks: LandmarkMap, key: number) {
   return landmarks[key];
 }
 
+const getMotion = (name: string) => pomMotionLibrary.find((motion) => motion.name === name) ?? null;
+
+const isLandmarkVisible = (landmark?: LandmarkMap[number]): landmark is NonNullable<LandmarkMap[number]> =>
+  !!landmark && (landmark.visibility ?? 1) >= 0.35;
+
+const confidenceForRange = (value: number, min: number, max: number): number => {
+  if (value >= min && value <= max) return 1;
+  const distance = value < min ? min - value : value - max;
+  return Math.max(0, 1 - distance / 45);
+};
+
+function analyzeLowerBodyMotion(landmarks: LandmarkMap) {
+  const leftHip = getLandmark(landmarks, 23);
+  const rightHip = getLandmark(landmarks, 24);
+  const leftKnee = getLandmark(landmarks, 25);
+  const rightKnee = getLandmark(landmarks, 26);
+  const leftAnkle = getLandmark(landmarks, 27);
+  const rightAnkle = getLandmark(landmarks, 28);
+  const lowerBody = [leftHip, rightHip, leftKnee, rightKnee, leftAnkle, rightAnkle];
+
+  if (!lowerBody.every(isLandmarkVisible)) return null;
+
+  const hipWidth = Math.max(Math.abs(leftHip.x - rightHip.x), 0.01);
+  const ankleSpread = Math.abs(leftAnkle.x - rightAnkle.x);
+  const averageHipY = (leftHip.y + rightHip.y) / 2;
+  const averageAnkleY = (leftAnkle.y + rightAnkle.y) / 2;
+  const leftKneeAngle = calculateJointAngle(leftHip, leftKnee, leftAnkle);
+  const rightKneeAngle = calculateJointAngle(rightHip, rightKnee, rightAnkle);
+
+  if (leftKneeAngle === null || rightKneeAngle === null) return null;
+
+  const toeTouchConfidence =
+    (ankleSpread >= hipWidth * 2.2 ? 0.4 : 0) +
+    (averageAnkleY < averageHipY - 0.02 ? 0.3 : 0) +
+    (leftKneeAngle >= 145 && rightKneeAngle >= 145 ? 0.3 : 0);
+  const candidates: Array<{ name: string; confidence: number }> = [];
+  if (toeTouchConfidence >= 0.8) {
+    candidates.push({ name: 'Toe Touch', confidence: toeTouchConfidence });
+  }
+
+  const baseLeg = leftAnkle.y >= rightAnkle.y ? 'left' : 'right';
+  const liftedLeg = baseLeg === 'left' ? 'right' : 'left';
+  const baseKneeAngle = baseLeg === 'left' ? leftKneeAngle : rightKneeAngle;
+  const liftedHip = liftedLeg === 'left' ? leftHip : rightHip;
+  const liftedKnee = liftedLeg === 'left' ? leftKnee : rightKnee;
+  const liftedAnkle = liftedLeg === 'left' ? leftAnkle : rightAnkle;
+  const liftedKneeAngle = liftedLeg === 'left' ? leftKneeAngle : rightKneeAngle;
+  const hipCenterX = (leftHip.x + rightHip.x) / 2;
+  const baseAnkle = baseLeg === 'left' ? leftAnkle : rightAnkle;
+
+  if (Math.abs(baseAnkle.y - liftedAnkle.y) >= 0.08 && baseKneeAngle >= 140) {
+    const liftedAnkleAboveKnee = liftedKnee.y - liftedAnkle.y;
+    const liftedKneeAboveHip = liftedHip.y - liftedKnee.y;
+    const liftedFootOffset = Math.abs(liftedAnkle.x - hipCenterX) / hipWidth;
+
+    if (
+      liftedKneeAngle >= 50 &&
+      liftedKneeAngle <= 135 &&
+      liftedKneeAboveHip > -0.08 &&
+      liftedAnkleAboveKnee < 0.08
+    ) {
+      candidates.push({
+        name: 'Liberty',
+        confidence:
+          0.45 +
+          0.3 * confidenceForRange(liftedKneeAngle, 65, 115) +
+          0.15 * confidenceForRange(liftedKneeAboveHip, 0.02, 0.3) +
+          0.1 * confidenceForRange(liftedAnkleAboveKnee, -0.02, 0.16),
+      });
+    }
+
+    if (
+      liftedKneeAngle >= 50 &&
+      liftedKneeAngle <= 150 &&
+      liftedAnkleAboveKnee > 0.08
+    ) {
+      candidates.push({
+        name: 'Scorpion',
+        confidence:
+          0.45 +
+          0.25 * confidenceForRange(liftedKneeAngle, 65, 135) +
+          0.2 * confidenceForRange(liftedAnkleAboveKnee, 0.1, 0.35) +
+          0.1 * confidenceForRange(liftedFootOffset, 0, 0.8),
+      });
+    }
+
+    if (
+      liftedKneeAngle >= 145 &&
+      liftedFootOffset >= 0.9 &&
+      liftedAnkle.y >= liftedHip.y - 0.18
+    ) {
+      candidates.push({
+        name: 'Arabesque',
+        confidence:
+          0.45 +
+          0.3 * confidenceForRange(liftedKneeAngle, 155, 180) +
+          0.25 * confidenceForRange(liftedFootOffset, 1, 2.2),
+      });
+    }
+
+    if (
+      liftedKneeAngle >= 145 &&
+      liftedAnkle.y < liftedHip.y - 0.2
+    ) {
+      candidates.push({
+        name: 'Heel Stretch',
+        confidence:
+          0.45 +
+          0.3 * confidenceForRange(liftedKneeAngle, 155, 180) +
+          0.25 * confidenceForRange(liftedHip.y - liftedAnkle.y, 0.25, 0.6),
+      });
+    }
+  }
+
+  const best = candidates.reduce<{ name: string; confidence: number } | null>(
+    (current, candidate) => !current || candidate.confidence > current.confidence ? candidate : current,
+    null
+  );
+  const pose = best && best.confidence >= 0.8 ? getMotion(best.name) : null;
+
+  return pose && best
+    ? { pose, confidence: best.confidence, feedback: pose.cues }
+    : null;
+}
+
 export function filterPoses(poses: PomMotion[], query: string, category: string) {
   const normalizedQuery = query.trim().toLowerCase();
+  const cleanQ = normalizedQuery.replace(/[-_\s]+/g, ' ');
   return poses.filter((pose) => {
     const matchesCategory = category === 'All' || pose.category === category;
+    const cleanName = pose.name.toLowerCase().replace(/[-_\s]+/g, ' ');
     const matchesQuery =
       normalizedQuery.length === 0 ||
       pose.name.toLowerCase().includes(normalizedQuery) ||
-      pose.description.toLowerCase().includes(normalizedQuery);
+      cleanName.includes(cleanQ) ||
+      pose.description.toLowerCase().includes(normalizedQuery) ||
+      pose.difficulty.toLowerCase().includes(normalizedQuery);
 
     return matchesCategory && matchesQuery;
   });
 }
 
 export function analyzePomMotion(landmarks: LandmarkMap) {
+  const lowerBodyAnalysis = analyzeLowerBodyMotion(landmarks);
   const leftShoulder = getLandmark(landmarks, 11);
   const rightShoulder = getLandmark(landmarks, 12);
   const leftElbow = getLandmark(landmarks, 13);
@@ -306,82 +440,235 @@ export function analyzePomMotion(landmarks: LandmarkMap) {
   const leftWrist = getLandmark(landmarks, 15);
   const rightWrist = getLandmark(landmarks, 16);
 
-  if (!leftShoulder || !rightShoulder || !leftWrist || !rightWrist) {
+  if (!leftShoulder || !rightShoulder || !leftElbow || !rightElbow || !leftWrist || !rightWrist) {
+    if (lowerBodyAnalysis) return lowerBodyAnalysis;
     return {
       pose: null,
       confidence: 0,
-      feedback: ['Position your arms and shoulders clearly in the frame for a better comparison.'],
+      feedback: ['Show both arms for arm-motion detection, or include your hips, knees, and ankles for stunt detection.'],
+    };
+  }
+  const proximalLandmarks = [leftShoulder, rightShoulder, leftElbow, rightElbow];
+  const wristLandmarks = [leftWrist, rightWrist];
+  if (
+    proximalLandmarks.some((landmark) => (landmark.visibility ?? 1) < 0.05) ||
+    wristLandmarks.some((landmark) => (landmark.visibility ?? 1) < 0.05)
+  ) {
+    if (lowerBodyAnalysis) return lowerBodyAnalysis;
+    return {
+      pose: null,
+      confidence: 0,
+      feedback: ['Show both arms for arm-motion detection, or include your hips, knees, and ankles for stunt detection.'],
     };
   }
 
   const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
   const wristY = (leftWrist.y + rightWrist.y) / 2;
+  const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2;
   const shoulderXSpread = Math.abs(leftShoulder.x - rightShoulder.x);
+  const shoulderWidth = Math.max(shoulderXSpread, 0.01);
   const wristXSpread = Math.abs(leftWrist.x - rightWrist.x);
   const wristYSpread = Math.abs(leftWrist.y - rightWrist.y);
   const elbowYSpread = leftElbow && rightElbow ? Math.abs(leftElbow.y - rightElbow.y) : 0.2;
   const wristHeight = wristY - shoulderY;
+  const wristSpreadRatio = wristXSpread / shoulderWidth;
+  const wristYSpreadRatio = wristYSpread / shoulderWidth;
+  const elbowYSpreadRatio = elbowYSpread / shoulderWidth;
+  const wristHeightRatio = wristHeight / shoulderWidth;
+  const averageArmReach = (
+    Math.hypot(leftElbow.x - leftShoulder.x, leftElbow.y - leftShoulder.y) +
+    Math.hypot(leftWrist.x - leftElbow.x, leftWrist.y - leftElbow.y) +
+    Math.hypot(rightElbow.x - rightShoulder.x, rightElbow.y - rightShoulder.y) +
+    Math.hypot(rightWrist.x - rightElbow.x, rightWrist.y - rightElbow.y)
+  ) / 2;
+  const screenLeft = leftShoulder.x < rightShoulder.x
+    ? { shoulder: leftShoulder, elbow: leftElbow, wrist: leftWrist }
+    : { shoulder: rightShoulder, elbow: rightElbow, wrist: rightWrist };
+  const screenRight = leftShoulder.x < rightShoulder.x
+    ? { shoulder: rightShoulder, elbow: rightElbow, wrist: rightWrist }
+    : { shoulder: leftShoulder, elbow: leftElbow, wrist: leftWrist };
+  const armsOpenOutward = [screenLeft, screenRight].every(({ shoulder, elbow, wrist }, index) => {
+    const direction = index === 0 ? -1 : 1;
+    const elbowOutward = (elbow.x - shoulder.x) * direction;
+    const wristOutward = (wrist.x - shoulder.x) * direction;
+    const wristBeyondElbow = (wrist.x - elbow.x) * direction;
+    return elbowOutward > shoulderWidth * 0.35 &&
+      wristOutward > shoulderWidth * 1.25 &&
+      wristBeyondElbow > shoulderWidth * 0.25;
+  });
+  const segmentAngleFromHorizontal = (
+    first: { x: number; y: number },
+    last: { x: number; y: number }
+  ) => Math.atan2(Math.abs(last.y - first.y), Math.abs(last.x - first.x)) * (180 / Math.PI);
+  const armsExtendHorizontally = armsOpenOutward && [screenLeft, screenRight].every(
+    ({ shoulder, elbow, wrist }) =>
+      segmentAngleFromHorizontal(shoulder, elbow) <= 10 &&
+      segmentAngleFromHorizontal(elbow, wrist) <= 10
+  );
+  const wristsRaisedRelativeToShoulders = leftWrist.y < leftShoulder.y - shoulderWidth * 0.55 &&
+    rightWrist.y < rightShoulder.y - shoulderWidth * 0.55;
+  const wristsCentered = Math.abs(shoulderCenterX - (leftWrist.x + rightWrist.x) / 2) < shoulderWidth * 0.8;
+  const halfTShape = [screenLeft, screenRight].every(({ shoulder, elbow, wrist }, index) => {
+    const direction = index === 0 ? -1 : 1;
+    const elbowOutward = (elbow.x - shoulder.x) * direction;
+    const wristInwardFromElbow = (elbow.x - wrist.x) * direction;
+    return elbowOutward > shoulderWidth * 0.35 &&
+      wristInwardFromElbow > shoulderWidth * 0.25 &&
+      Math.abs(wrist.x - shoulderCenterX) < shoulderWidth * 0.85 &&
+      Math.abs(elbow.y - shoulder.y) < shoulderWidth * 0.7 &&
+      Math.abs(wrist.y - shoulder.y) < shoulderWidth * 0.7;
+  });
+
+  // Directional arm angle metrics for High V and Low V detection
+  const leftWristUpward = screenLeft.shoulder.y - screenLeft.wrist.y;
+  const rightWristUpward = screenRight.shoulder.y - screenRight.wrist.y;
+  const leftWristDownward = screenLeft.wrist.y - screenLeft.shoulder.y;
+  const rightWristDownward = screenRight.wrist.y - screenRight.shoulder.y;
+
+  const leftWristOutwardFromShoulder = screenLeft.shoulder.x - screenLeft.wrist.x;
+  const rightWristOutwardFromShoulder = screenRight.wrist.x - screenRight.shoulder.x;
+  const leftWristOutwardFromCenter = shoulderCenterX - screenLeft.wrist.x;
+  const rightWristOutwardFromCenter = screenRight.wrist.x - shoulderCenterX;
+
+  const leftElbowAngle = calculateJointAngle(screenLeft.shoulder, screenLeft.elbow, screenLeft.wrist) ?? 180;
+  const rightElbowAngle = calculateJointAngle(screenRight.shoulder, screenRight.elbow, screenRight.wrist) ?? 180;
+  const elbowsStraight = leftElbowAngle >= 95 && rightElbowAngle >= 95;
+
+  // High V: Arms extended upward forming a V or punched up overhead
+  // Angle with upward vertical (0° = straight overhead punch, 90° = horizontal)
+  // Center-referenced metrics allow narrow overhead punch up to be recognized cleanly
+  const leftHighVAngleFromCenter = leftWristUpward > 0
+    ? Math.atan2(Math.max(0, leftWristOutwardFromCenter), leftWristUpward) * (180 / Math.PI)
+    : 0;
+  const rightHighVAngleFromCenter = rightWristUpward > 0
+    ? Math.atan2(Math.max(0, rightWristOutwardFromCenter), rightWristUpward) * (180 / Math.PI)
+    : 0;
+  const leftHighVAngleFromShoulder = leftWristUpward > 0
+    ? Math.atan2(leftWristOutwardFromShoulder, leftWristUpward) * (180 / Math.PI)
+    : 0;
+  const rightHighVAngleFromShoulder = rightWristUpward > 0
+    ? Math.atan2(rightWristOutwardFromShoulder, rightWristUpward) * (180 / Math.PI)
+    : 0;
+
+  const wristsTooCloseForHighV = wristsCentered &&
+    wristSpreadRatio <= 0.55 &&
+    wristHeight > -averageArmReach * 0.95;
+
+  // Both wrists are above shoulders, on their respective sides of the body, separated
+  // Allows arm punch up overhead (0° to 35°) as well as wide High V (35° to 82°)
+  const isHighVAngle =
+    !armsExtendHorizontally &&
+    !wristsTooCloseForHighV &&
+    elbowsStraight &&
+    leftWristUpward > shoulderWidth * 0.10 &&
+    rightWristUpward > shoulderWidth * 0.10 &&
+    screenLeft.wrist.x <= shoulderCenterX + shoulderWidth * 0.12 &&
+    screenRight.wrist.x >= shoulderCenterX - shoulderWidth * 0.12 &&
+    wristXSpread >= shoulderWidth * 0.20 &&
+    leftHighVAngleFromCenter >= 0 && leftHighVAngleFromCenter <= 85 &&
+    rightHighVAngleFromCenter >= 0 && rightHighVAngleFromCenter <= 85 &&
+    leftHighVAngleFromShoulder <= 82 &&
+    rightHighVAngleFromShoulder <= 82;
+
+  const highVAngleDiff = Math.abs(leftHighVAngleFromCenter - rightHighVAngleFromCenter);
+  const highVScore = isHighVAngle
+    ? (
+        0.85 +
+        (elbowsStraight ? 0.08 : 0.03) +
+        (highVAngleDiff < 30 ? 0.07 : highVAngleDiff < 45 ? 0.03 : 0)
+      )
+    : (
+        !armsExtendHorizontally && wristsRaisedRelativeToShoulders && armsOpenOutward
+          ? 0.88
+          : 0
+      );
+
+  // Low V: Arms extended downward and outward forming an inverted V or punched down
+  const leftLowVAngleFromCenter = leftWristDownward > 0
+    ? Math.atan2(Math.max(0, leftWristOutwardFromCenter), leftWristDownward) * (180 / Math.PI)
+    : 0;
+  const rightLowVAngleFromCenter = rightWristDownward > 0
+    ? Math.atan2(Math.max(0, rightWristOutwardFromCenter), rightWristDownward) * (180 / Math.PI)
+    : 0;
+  const leftLowVAngleFromShoulder = leftWristDownward > 0
+    ? Math.atan2(leftWristOutwardFromShoulder, leftWristDownward) * (180 / Math.PI)
+    : 0;
+  const rightLowVAngleFromShoulder = rightWristDownward > 0
+    ? Math.atan2(rightWristOutwardFromShoulder, rightWristDownward) * (180 / Math.PI)
+    : 0;
+
+  // Relaxed arms hanging straight down at the sides have:
+  // - angle from center < 10°
+  // - both wrists inside shoulder line
+  // - both elbows inside shoulder line
+  const armsAreRelaxedAtSides =
+    leftLowVAngleFromCenter < 10 &&
+    rightLowVAngleFromCenter < 10 &&
+    leftWristOutwardFromShoulder <= 0 &&
+    rightWristOutwardFromShoulder <= 0 &&
+    screenLeft.elbow.x >= screenLeft.shoulder.x &&
+    screenRight.elbow.x <= screenRight.shoulder.x;
+
+  // Both wrists below shoulders, on their respective sides, punched down into Low V
+  // Allows punch down beside hips (10° to 35°) as well as wide Low V (35° to 82°)
+  const isLowVAngle =
+    !armsExtendHorizontally &&
+    !armsAreRelaxedAtSides &&
+    leftElbowAngle >= 135 &&
+    rightElbowAngle >= 135 &&
+    leftWristDownward > shoulderWidth * 0.12 &&
+    rightWristDownward > shoulderWidth * 0.12 &&
+    screenLeft.wrist.x < shoulderCenterX &&
+    screenRight.wrist.x > shoulderCenterX &&
+    wristXSpread >= shoulderWidth * 0.25 &&
+    leftLowVAngleFromCenter >= 10 && leftLowVAngleFromCenter <= 70 &&
+    rightLowVAngleFromCenter >= 10 && rightLowVAngleFromCenter <= 70 &&
+    leftLowVAngleFromShoulder <= 70 &&
+    rightLowVAngleFromShoulder <= 70;
+
+  const lowVAngleDiff = Math.abs(leftLowVAngleFromCenter - rightLowVAngleFromCenter);
+  const lowVScore = isLowVAngle
+    ? 0.85 + (lowVAngleDiff < 30 ? 0.07 : lowVAngleDiff < 45 ? 0.03 : 0)
+    : 0;
 
   const motions = [
     {
-      name: 'Clap',
-      score: (
-        (wristXSpread < 0.16 ? 0.45 : 0) +
-        (wristYSpread < 0.12 ? 0.35 : 0) +
-        (Math.abs(wristHeight) < 0.08 ? 0.2 : 0)
-      ),
-      feedback: ['Bring the hands together in front of the chest', 'Keep the elbows soft and close to the body'],
-    },
-    {
       name: 'High V',
-      score: (
-        (shoulderXSpread < 0.15 ? 0.2 : 0) +
-        (wristXSpread > 0.25 ? 0.3 : 0) +
-        (wristYSpread < 0.12 ? 0.2 : 0) +
-        (wristHeight < -0.08 ? 0.2 : 0) +
-        (elbowYSpread < 0.12 ? 0.1 : 0)
-      ),
+      score: highVScore,
       feedback: ['Raise the arms to a wide V', 'Keep the wrists higher than the shoulders', 'Stay relaxed through the upper body'],
     },
     {
       name: 'T Motion',
-      score: (
-        (shoulderXSpread < 0.15 ? 0.15 : 0) +
-        (wristXSpread > 0.25 ? 0.25 : 0) +
-        (wristYSpread < 0.12 ? 0.2 : 0) +
-        (Math.abs(wristHeight) < 0.06 ? 0.2 : 0) +
-        (elbowYSpread < 0.12 ? 0.2 : 0)
-      ),
+      score: armsExtendHorizontally ? (
+        (wristSpreadRatio > 2.5 ? 0.25 : 0) +
+        (wristYSpreadRatio < 0.8 ? 0.15 : 0) +
+        (elbowYSpreadRatio < 0.8 ? 0.15 : 0) +
+        0.45
+      ) : 0,
       feedback: ['Open the arms into a straight horizontal line', 'Keep the shoulders level and the posture tall'],
     },
     {
       name: 'Half T',
-      score: (
-        (shoulderXSpread < 0.15 ? 0.1 : 0) +
-        (wristXSpread > 0.12 && wristXSpread < 0.24 ? 0.25 : 0) +
-        (wristYSpread < 0.12 ? 0.2 : 0) +
-        (Math.abs(wristHeight) < 0.06 ? 0.2 : 0) +
-        (elbowYSpread < 0.12 ? 0.25 : 0)
-      ),
-      feedback: ['Keep the arms in a shorter horizontal line', 'Stay centered and keep the elbows soft'],
+      score: halfTShape ? (
+        (wristSpreadRatio > 0.9 && wristSpreadRatio < 2.5 ? 0.25 : 0) +
+        (wristYSpreadRatio < 0.8 ? 0.15 : 0) +
+        (Math.abs(wristHeightRatio) < 0.7 ? 0.15 : 0) +
+        (elbowYSpreadRatio < 0.8 ? 0.2 : 0) +
+        0.25
+      ) : 0,
+      feedback: ['Keep elbows lifted at shoulder height', 'Bend your elbows and pull fists inward toward your chest'],
     },
     {
       name: 'Low V',
-      score: (
-        (shoulderXSpread < 0.15 ? 0.1 : 0) +
-        (wristXSpread > 0.22 ? 0.25 : 0) +
-        (wristYSpread < 0.12 ? 0.15 : 0) +
-        (wristHeight > 0.04 ? 0.25 : 0) +
-        (elbowYSpread < 0.12 ? 0.25 : 0)
-      ),
+      score: lowVScore,
       feedback: ['Open the arms into a lower V shape', 'Keep the line lower than a high V while staying tall'],
     },
   ];
 
   const bestMatch = motions.reduce((best, motion) => (motion.score > best.score ? motion : best));
-  const pose = bestMatch.score > 0.45 ? pomMotionLibrary.find((item) => item.name === bestMatch.name) ?? null : null;
+  const pose = bestMatch.score >= 0.60 ? pomMotionLibrary.find((item) => item.name === bestMatch.name) ?? null : null;
 
-  return {
+  const armAnalysis = {
     pose,
     confidence: Math.min(1, Math.max(0, bestMatch.score)),
     feedback: pose
@@ -391,4 +678,7 @@ export function analyzePomMotion(landmarks: LandmarkMap) {
         ]
       : ['Try to open the arms into a clearer shape and keep the shoulders relaxed'],
   };
+  return lowerBodyAnalysis && lowerBodyAnalysis.confidence > armAnalysis.confidence
+    ? lowerBodyAnalysis
+    : armAnalysis;
 }

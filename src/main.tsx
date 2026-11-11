@@ -1,35 +1,55 @@
-
 import { createRoot } from "react-dom/client";
 import App from "./app/App.tsx";
+import { ErrorBoundary } from "./app/components/ErrorBoundary.tsx";
 import "./styles/index.css";
 
-// Initialize Capacitor native app
+import { App as CapApp } from '@capacitor/app';
+
+// Initialize Capacitor native app & PWA service worker
 if (typeof window !== "undefined") {
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      void navigator.serviceWorker.register('/sw.js');
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((registration) => {
+          registration.addEventListener('updatefound', () => {
+            const installing = registration.installing;
+            if (installing) {
+              installing.addEventListener('statechange', () => {
+                if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                  window.dispatchEvent(new CustomEvent('optistance:sw-update-available'));
+                }
+              });
+            }
+          });
+        })
+        .catch((err) => {
+          console.warn('Service worker registration failed:', err);
+        });
     });
   }
 
-  // Handle app lifecycle events when running in Capacitor.
-  // Back-button navigation is delegated to the in-app tab/drawer UI, so these
-  // listeners only keep the native shell from exiting without user intent.
-  if ((window as any).Capacitor) {
-    const { App: CapacitorApp } = (window as any).Capacitor.Plugins;
-
-    CapacitorApp?.addListener?.("pause", () => {
-      // App moved to background – iOS/Android handle suspension.
+  // Handle native Android hardware back button
+  try {
+    CapApp.addListener('backButton', ({ canGoBack }) => {
+      // Dispatch custom back event so in-app views, modals, and camera can handle it
+      const event = new CustomEvent('optistance:hardware-back', {
+        cancelable: true,
+        detail: { canGoBack },
+      });
+      const handled = !window.dispatchEvent(event);
+      if (!handled && !canGoBack) {
+        // Double-tap or default exit if not handled
+        void CapApp.exitApp();
+      }
     });
-
-    CapacitorApp?.addListener?.("resume", () => {
-      // App resumed – session timers continue client-side.
-    });
-
-    CapacitorApp?.addListener?.("backButton", () => {
-      // Intercept native back so the app can close modals/drawer instead of quitting.
-    });
+  } catch {
+    // Non-native / browser fallback
   }
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
-  
+createRoot(document.getElementById("root")!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

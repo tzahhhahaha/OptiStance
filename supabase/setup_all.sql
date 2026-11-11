@@ -153,6 +153,7 @@ INSERT INTO stunts (name, category, difficulty_tier, description, coaching_cues,
 ('Scorpion', 'stunt', 'advanced', 'A flexibility-based stunt where the cheerleader is in a vertical position with one leg folded back toward the head', 'Core engagement, pointed toes, and full body extension required', 100, 85.0),
 ('T-Motion', 'pom_motion', 'intermediate', 'A pom motion where arms form a T shape, typically executed with sharp, clean arm movement', 'Crisp arm positions, locked elbows, and synchronized motion', 80, 80.0),
 ('High V', 'pom_motion', 'beginner', 'A fundamental arm position with both arms extended above the head in a V shape', 'Locked arms, shoulders relaxed, and proper hand positions', 60, 75.0),
+('Low V', 'pom_motion', 'beginner', 'A fundamental cheer motion with arms extended downward at 45 degrees forming an inverted V shape', 'Locked elbows, tight wrists with thumbs facing forward, shoulders depressed', 60, 75.0),
 ('Heel Stretch', 'stunt', 'advanced', 'A vertical stunt where the flyer''s heel is held by the base, creating an elegant line from head to toe', 'Pointed toe extension, body alignment, and core strength', 95, 85.0),
 ('Full Down', 'tumbling', 'advanced', 'A tumbling skill involving a full twist while airborne', 'Height off floor, rotation speed, and landing control', 100, 85.0),
 ('Pike Jump', 'jump', 'intermediate', 'A jump where the athlete brings their knees up to the chest with pointed toes extended forward', 'Height, leg position, and landing form', 80, 80.0),
@@ -225,6 +226,12 @@ CREATE POLICY "Admins can view all users" ON users
 -- Stunts policies (visible to all authenticated users)
 CREATE POLICY "Authenticated users can view stunts" ON stunts
   FOR SELECT TO authenticated USING (true);
+
+-- Guests can browse the active syllabus, but never archived poses or write to it.
+REVOKE ALL ON TABLE public.stunts FROM anon;
+GRANT SELECT ON TABLE public.stunts TO anon;
+CREATE POLICY "Guests can view active stunts" ON stunts
+  FOR SELECT TO anon USING (is_archived = false);
 
 -- Joint angle standards policies
 CREATE POLICY "Authenticated users can view joint angle standards" ON joint_angle_standards
@@ -335,3 +342,49 @@ CREATE INDEX IF NOT EXISTS idx_media_uploads_session_id ON media_uploads(session
 SELECT '✅ Tables created successfully' AS status;
 SELECT COUNT(*) AS stunt_count FROM stunts;
 SELECT tablename, policyname, cmd FROM pg_policies WHERE schemaname = 'public' ORDER BY tablename, policyname;
+
+-- ============================================================================
+-- Pose videos: admin-uploadable MP4/WebM video storage bucket for pose tutorials
+--
+-- Allows administrators to upload 50MB direct video files to Supabase Storage
+-- alongside YouTube links. Publicly readable for athletes and guests.
+-- ============================================================================
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'pose-videos',
+  'pose-videos',
+  true,
+  52428800, -- 50 MB
+  ARRAY['video/mp4', 'video/webm', 'video/quicktime', 'video/ogg']
+)
+ON CONFLICT (id) DO UPDATE
+  SET public              = EXCLUDED.public,
+      file_size_limit     = EXCLUDED.file_size_limit,
+      allowed_mime_types  = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS "Pose videos are publicly readable" ON storage.objects;
+
+CREATE POLICY "Pose videos are publicly readable"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'pose-videos');
+
+DROP POLICY IF EXISTS "Admins can upload pose videos" ON storage.objects;
+DROP POLICY IF EXISTS "Admins can update pose videos" ON storage.objects;
+DROP POLICY IF EXISTS "Admins can delete pose videos" ON storage.objects;
+
+CREATE POLICY "Admins can upload pose videos"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'pose-videos' AND public.is_admin());
+
+CREATE POLICY "Admins can update pose videos"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING (bucket_id = 'pose-videos' AND public.is_admin())
+  WITH CHECK (bucket_id = 'pose-videos' AND public.is_admin());
+
+CREATE POLICY "Admins can delete pose videos"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING (bucket_id = 'pose-videos' AND public.is_admin());

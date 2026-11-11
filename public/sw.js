@@ -19,7 +19,7 @@
 // The trade-off is deliberate: an athlete may briefly be on the previous build
 // after a deploy. That is the right way round for this app, because the failure
 // mode of the alternative is not opening at all.
-const CACHE_NAME = 'optistance-app-v3';
+const CACHE_NAME = 'optistance-app-v5';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest'];
 
 // Vite emits content-hashed filenames, so anything under /assets/ is immutable.

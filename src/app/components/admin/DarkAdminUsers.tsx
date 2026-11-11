@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search,
   Trash2,
@@ -11,6 +11,7 @@ import {
   Eye,
   UserCheck,
   UserX,
+  RefreshCw,
 } from 'lucide-react';
 import {
   supabaseGetUsers,
@@ -21,6 +22,8 @@ import {
   adminSetUserPassword,
   reviewVerification,
   subscribeToOnlineAthletes,
+  subscribeToOnlineAthleteProfiles,
+  subscribeToUsersChanges,
   type User as DbUser,
 } from '../../../services/supabaseApi';
 import type { VerificationStatus } from '../../types';
@@ -96,8 +99,10 @@ const toAthlete = (
 
 export default function DarkAdminUsers() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
+  const [liveProfiles, setLiveProfiles] = useState<DbUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** True when the roster loaded but nobody has ever trained. */
   const [hasAnyActivity, setHasAnyActivity] = useState(false);
@@ -126,18 +131,28 @@ export default function DarkAdminUsers() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const [confirmRemove, setConfirmRemove] = useState<Athlete | null>(null);
+  const [, setRelativeTick] = useState(0);
 
   useEffect(() => {
-    const unsubscribe = subscribeToOnlineAthletes((ids) => {
+    const unsubscribeIds = subscribeToOnlineAthletes((ids) => {
       setOnlineUserIds(new Set(ids));
     });
+    const unsubscribeProfiles = subscribeToOnlineAthleteProfiles((profiles) => {
+      setLiveProfiles(profiles);
+    });
+    const timer = setInterval(() => {
+      setRelativeTick((n) => n + 1);
+    }, 30000);
     return () => {
-      unsubscribe();
+      unsubscribeIds();
+      unsubscribeProfiles();
+      clearInterval(timer);
     };
   }, []);
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
+  const loadUsers = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setIsRefreshing(true);
     setLoadError(null);
     try {
       const [users, sessions] = await Promise.all([
@@ -148,42 +163,82 @@ export default function DarkAdminUsers() {
       ]);
 
       const aggregates = aggregateSessionsByAthlete(sessions);
-      setAthletes(
-        users.map((user) => {
-          const stats = aggregates.get(user.id);
-          return toAthlete(
-            user,
-            stats?.sessions ?? 0,
-            stats?.avgAccuracy ?? null,
-            stats?.lastSessionAt ?? null
-          );
-        })
+      const nextAthletes = users.map((user) => {
+        const stats = aggregates.get(user.id);
+        return toAthlete(
+          user,
+          stats?.sessions ?? 0,
+          stats?.avgAccuracy ?? null,
+          stats?.lastSessionAt ?? null
+        );
+      });
+      setAthletes(nextAthletes);
+      setSelectedAthlete((prev) =>
+        prev ? nextAthletes.find((a) => a.id === prev.id) ?? prev : null
       );
       setHasAnyActivity(sessions.length > 0);
     } catch (e) {
-      setLoadError(
-        e instanceof Error
-          ? e.message
-          : 'Could not load the athlete roster. Check your connection and try again.'
-      );
+      if (!silent) {
+        setLoadError(
+          e instanceof Error
+            ? e.message
+            : 'Could not load the athlete roster. Check your connection and try again.'
+        );
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadUsers();
+    void loadUsers(false);
+    const refreshSilently = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void loadUsers(true);
+      }
+    };
+    const unsubscribeRoster = subscribeToUsersChanges(() => {
+      void loadUsers(true);
+    });
+    const interval = setInterval(refreshSilently, 30000);
+    window.addEventListener('online', refreshSilently);
+    document.addEventListener('visibilitychange', refreshSilently);
+    return () => {
+      unsubscribeRoster();
+      clearInterval(interval);
+      window.removeEventListener('online', refreshSilently);
+      document.removeEventListener('visibilitychange', refreshSilently);
+    };
   }, [loadUsers]);
 
   const patchAthlete = (id: string, changes: Partial<Athlete>) => {
     setAthletes((prev) => prev.map((a) => (a.id === id ? { ...a, ...changes } : a)));
+    setLiveProfiles((prev) =>
+      prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              ...(changes.role !== undefined
+                ? { role: changes.role === 'admin' ? 'SystemManager' : 'Athlete' }
+                : {}),
+              ...(changes.isActive !== undefined ? { isActive: changes.isActive } : {}),
+              ...(changes.isVerified !== undefined ? { isVerified: changes.isVerified } : {}),
+              ...(changes.verificationStatus !== undefined
+                ? { verificationStatus: changes.verificationStatus }
+                : {}),
+            }
+          : p
+      )
+    );
     setSelectedAthlete((prev) => (prev && prev.id === id ? { ...prev, ...changes } : prev));
   };
 
   /**
-   * Remove = soft delete. `supabaseDeleteUser` flips `is_active` to false; the
-   * row stays. It used to be filtered out of local state and then reappeared as
-   * "Active" on the next load, so removed athletes were unrecoverable.
+   * Remove = permanent deletion. `supabaseDeleteUser` erases the user from
+   * `auth.users`, `public.users`, and all related tables (`athlete_profiles`,
+   * `practice_sessions`, `joint_corrections`, `support_tickets`, `ticket_replies`,
+   * `media_uploads`) and broadcasts `'athlete-deleted'` to all open consoles.
    */
   const handleRemove = async () => {
     if (!confirmRemove) return;
@@ -192,10 +247,17 @@ export default function DarkAdminUsers() {
     setDetailError(null);
     try {
       await supabaseDeleteUser(target.id);
-      patchAthlete(target.id, { isActive: false });
+      setAthletes((prev) => prev.filter((a) => a.id !== target.id));
+      setLiveProfiles((prev) => prev.filter((p) => p.id !== target.id));
+      setOnlineUserIds((prev) => {
+        if (!prev.has(target.id)) return prev;
+        const next = new Set(prev);
+        next.delete(target.id);
+        return next;
+      });
       if (selectedAthlete?.id === target.id) setSelectedAthlete(null);
       setResetNotice(
-        `${target.name} was removed. Their account is deactivated — they can be reactivated by promoting them again from this page.`
+        `${target.name} and all associated records (login, sessions, and support tickets) were permanently erased from Admin and Supabase.`
       );
     } catch (e) {
       setDetailError(e instanceof Error ? e.message : 'Failed to remove athlete. Please try again.');
@@ -303,6 +365,19 @@ export default function DarkAdminUsers() {
     }
   };
 
+  const rosterAthletes = useMemo(() => {
+    const byId = new Map<string, Athlete>();
+    for (const a of athletes) {
+      byId.set(a.id, a);
+    }
+    for (const profile of liveProfiles) {
+      if (!byId.has(profile.id)) {
+        byId.set(profile.id, toAthlete(profile, 0, null, null));
+      }
+    }
+    return [...byId.values()];
+  }, [athletes, liveProfiles]);
+
   const matchesScope = (athlete: Athlete) => {
     switch (scope) {
       case 'online':
@@ -320,23 +395,23 @@ export default function DarkAdminUsers() {
     }
   };
 
-  const filteredAthletes = athletes.filter((a) => {
+  const filteredAthletes = rosterAthletes.filter((a) => {
     const term = searchTerm.trim().toLowerCase();
     const matchesTerm =
       !term || a.name.toLowerCase().includes(term) || a.email.toLowerCase().includes(term);
     return matchesTerm && matchesScope(a);
   });
 
-  const onlineCount = athletes.filter((a) => onlineUserIds.has(a.id)).length;
-  const activeCount = athletes.filter((a) => a.isActive).length;
-  const revokedCount = athletes.filter((a) => !a.isVerified).length;
+  const onlineCount = rosterAthletes.filter((a) => onlineUserIds.has(a.id)).length;
+  const activeCount = rosterAthletes.filter((a) => a.isActive).length;
+  const revokedCount = rosterAthletes.filter((a) => !a.isVerified).length;
 
   const SCOPES: { id: ScopeFilter; label: string; count: number }[] = [
-    { id: 'all', label: 'All', count: athletes.length },
+    { id: 'all', label: 'All', count: rosterAthletes.length },
     { id: 'online', label: 'Online', count: onlineCount },
     { id: 'active', label: 'Active accounts', count: activeCount },
-    { id: 'deactivated', label: 'Deactivated', count: athletes.length - activeCount },
-    { id: 'verified', label: 'Full access', count: athletes.length - revokedCount },
+    { id: 'deactivated', label: 'Deactivated', count: rosterAthletes.length - activeCount },
+    { id: 'verified', label: 'Full access', count: rosterAthletes.length - revokedCount },
     { id: 'unverified', label: 'Basic', count: revokedCount },
   ];
 
@@ -392,15 +467,28 @@ export default function DarkAdminUsers() {
             Roles, pose access, and practice activity
           </p>
         </div>
-        <button
-          onClick={() => {
-            setAddError(null);
-            setShowAddModal(true);
-          }}
-          className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all"
-        >
-          + Add Athlete
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void loadUsers(true)}
+            disabled={loading || isRefreshing}
+            aria-label="Refresh athlete roster"
+            title="Refresh athlete roster"
+            className="px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-200 text-xs font-bold flex items-center gap-2 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-400' : ''}`} />
+            <span>{isRefreshing ? 'Syncing…' : 'Refresh'}</span>
+          </button>
+          <button
+            onClick={() => {
+              setAddError(null);
+              setShowAddModal(true);
+            }}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all"
+          >
+            + Add Athlete
+          </button>
+        </div>
       </div>
 
       {/* Search + scope filters */}
@@ -447,14 +535,14 @@ export default function DarkAdminUsers() {
             <UserX className="w-5 h-5 text-zinc-500" />
           </div>
           <p className="text-sm font-bold text-white mb-1">
-            {athletes.length === 0
+            {rosterAthletes.length === 0
               ? 'No athletes yet'
               : scope !== 'all' || searchTerm.trim()
                 ? 'No athletes match this filter'
                 : 'No athletes to show'}
           </p>
           <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-            {athletes.length === 0
+            {rosterAthletes.length === 0
               ? 'Accounts appear here as soon as athletes sign up.'
               : 'Try a different filter or clear the search.'}
           </p>
@@ -589,10 +677,9 @@ export default function DarkAdminUsers() {
                                 setDetailError(null);
                                 setConfirmRemove(athlete);
                               }}
-                              disabled={!athlete.isActive}
                               aria-label={`Remove ${athlete.name}`}
-                              className="p-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                              title={athlete.isActive ? 'Remove athlete' : 'Already removed'}
+                              className="p-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 transition-all"
+                              title="Permanently delete athlete and all records"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -690,8 +777,7 @@ export default function DarkAdminUsers() {
                         setDetailError(null);
                         setConfirmRemove(athlete);
                       }}
-                      disabled={!athlete.isActive}
-                      className="flex-1 py-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="flex-1 py-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold"
                     >
                       Remove
                     </button>
@@ -836,16 +922,9 @@ export default function DarkAdminUsers() {
                     setDetailError(null);
                     setConfirmRemove(selectedAthlete);
                   }}
-                  disabled={!selectedAthlete.isActive}
-                  className="flex-1 py-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex-1 py-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-rose-300 font-bold transition-all"
                 >
-                  {selectedAthlete.isActive ? 'Remove' : 'Removed'}
-                </button>
-                <button
-                  onClick={() => setSelectedAthlete(null)}
-                  className="flex-1 py-3 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-300 font-bold transition-all"
-                >
-                  Close
+                  Remove
                 </button>
               </div>
               {detailError && (
@@ -874,11 +953,10 @@ export default function DarkAdminUsers() {
               <Trash2 className="w-5 h-5" />
             </div>
             <h3 id="confirm-remove-title" className="text-lg font-black text-white mb-2">
-              Remove {confirmRemove.name}?
+              Permanently Delete {confirmRemove.name}?
             </h3>
             <p className="text-sm text-zinc-400 leading-relaxed mb-5">
-              Their account is deactivated and they will lose access. Their practice
-              history is kept, and you can reactivate them later.
+              This will permanently erase their login account (<code className="text-zinc-300">auth.users</code>), profile (<code className="text-zinc-300">public.users</code>), practice sessions, and support tickets from Admin and Supabase. This action cannot be undone.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -892,7 +970,7 @@ export default function DarkAdminUsers() {
                 disabled={pendingAction === 'remove'}
                 className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold disabled:opacity-60"
               >
-                {pendingAction === 'remove' ? 'Removing…' : 'Remove athlete'}
+                {pendingAction === 'remove' ? 'Deleting…' : 'Delete permanently'}
               </button>
             </div>
           </div>

@@ -1,387 +1,151 @@
-# Cheerleading Pose Trainer - Quick Reference Guide
+# OptiStance — Quick Reference Guide
 
-## 🚀 Getting Started
+## 🚀 Commands
 
-### Install Dependencies
-```bash
-pnpm install
-```
-
-### Run Development Server
-```bash
-pnpm run dev
-```
-
-### Build for Production
-```bash
-pnpm run build
-```
+| Command | Purpose |
+|---------|---------|
+| `npm install` | Install project dependencies |
+| `npm run dev` | Vendor MediaPipe assets and start Vite dev server (`http://localhost:5173`) |
+| `npm run build` | Vendor MediaPipe assets and build production bundle to `dist/` |
+| `npm run test` | Run Vitest unit and integration tests |
+| `npm run lint` | Run ESLint on `src/` (`--max-warnings=0`) |
+| `npm run qa` | Run quick file & script sanity check (`scripts/qa/check.js`) |
+| `npm run vendor:mediapipe` | Copy MediaPipe Pose & Hands WASM/TFLite assets into `public/mediapipe/` |
+| `npm run sync` | Sync `dist/` web assets with Capacitor native projects (`npx cap sync`) |
+| `npm run build:android` | Vendor assets, build web bundle, sync, and open Android Studio |
+| `npm run build:ios` | Vendor assets, build web bundle, sync, and open Xcode |
+| `npm run create:test-user` | Create or confirm test accounts via Supabase Admin API (`scripts/create-test-user.mjs`) |
 
 ---
 
 ## 📂 Key Files & Components
 
-### Core Application
+### Core Application & State
 | File | Purpose |
 |------|---------|
-| `src/app/App.tsx` | Main app router & authentication state |
-| `src/styles/theme.css` | Design tokens & CSS variables |
+| `src/app/App.tsx` | Root component, startup auth resolution, tab routing, and offline sync triggers |
+| `src/app/types.ts` | Core TypeScript types (`Pose`, `PracticeSession`, `AppSettings`, `UserProfile`, `MASTERY_THRESHOLD`) |
+| `src/app/data/poses.ts` | Bundled syllabus of 9 cheerleading poses (`INITIAL_POSES`) |
 
-### Authentication
+### Screens & Navigation
 | File | Purpose |
 |------|---------|
-| `LoginPage.tsx` | User login interface |
-| `SignupPage.tsx` | User registration interface |
+| `src/app/components/AuthScreen.tsx` | Login, registration, password reset, and guest mode entry |
+| `src/app/components/Header.tsx` | Top bar displaying user avatar, mastery badge count, and drawer button |
+| `src/app/components/BottomNavBar.tsx` | Bottom bar for `library`, `camera` (AI Scan), and `history` tabs |
+| `src/app/components/NavigationDrawer.tsx` | Side drawer for `profile`, `settings`, `support`, `about`, and `admin` |
+| `src/app/components/PoseLibraryScreen.tsx` | Pose browser with search, category filter, and verification lock state |
+| `src/app/components/PoseDetailScreen.tsx` | Detailed pose view with ideal angles, tips, common mistakes, and tutorial video |
+| `src/app/components/AICameraScreen.tsx` | Lazy-loaded camera view with MediaPipe Pose + Hands, audio cues, and image upload |
+| `src/app/components/SessionHistoryScreen.tsx` | Practice session log and telemetry review |
+| `src/app/components/ProfileScreen.tsx` | Athlete stats, profile editing, email confirmation, and verification status |
+| `src/app/components/SettingsScreen.tsx` | App preferences (dark/light theme, language, audio cues, notifications, timer) |
+| `src/app/components/HelpSupportScreen.tsx` | Help center and Supabase support ticket submission |
+| `src/app/components/AboutScreen.tsx` | App overview and ICU compliance summary |
+| `src/app/components/DarkAdminPage.tsx` | Lazy-loaded System Manager console (Users, Content, Analytics, Settings) |
 
-### Main Pages
+### Services & Scoring
 | File | Purpose |
 |------|---------|
-| `HomePage.tsx` | Dashboard with stats & shortcuts |
-| `PosePage.tsx` | Pose library browser |
-| `ProfilePage.tsx` | User profile & achievements |
-
-### Camera & Detection
-| File | Purpose |
-|------|---------|
-| `CameraView.tsx` | Camera interface + MediaPipe integration |
-
-### Navigation
-| File | Purpose |
-|------|---------|
-| `BottomNav.tsx` | Main navigation bar |
-| `HamburgerMenu.tsx` | Side menu |
-| `CameraButton.tsx` | Floating action button |
+| `src/services/supabaseService.ts` | Singleton Supabase client and typed table services (`userService`, `stuntService`, `sessionService`, `ticketService`, `mediaService`, `analyticsService`) |
+| `src/services/supabaseApi.ts` | Auth helpers, verification workflow RPCs, presence tracking, and session merging |
+| `src/services/accountStorage.ts` | Per-account localStorage namespacing (`optistance_sessions:<userId>`, `optistance_poses:<userId>`) |
+| `src/services/offlineSync.ts` | Offline practice session queue (`optistance_pending_sessions`) and background uploader |
+| `src/services/poseImages.ts` | Admin upload/delete helpers for `pose-images` (5 MB) and `pose-videos` (50 MB) buckets |
+| `src/app/scoring/scorePose.ts` | Biomechanical joint angle evaluation against ICU standards |
+| `src/app/utils/mediapipeAssets.ts` | Local URL resolution and preflight checks for vendored MediaPipe Pose & Hands models |
 
 ---
 
-## 🎨 Design System Quick Reference
+## 🔄 Navigation & Tab Routing
 
-### Colors
-```css
-/* Primary */
---purple-600: #9333ea
---purple-700: #7e22ce
---purple-800: #6b21a8
+`App.tsx` manages navigation via `currentTab` (`TabType | 'admin'`):
 
-/* Accent */
---purple-100: #f3e8ff
---purple-200: #e9d5ff
-
-/* Semantic */
---green-600: #16a34a (Success)
---yellow-600: #ca8a04 (Warning)
---red-600: #dc2626 (Error)
-```
-
-### Spacing Scale
-- xs: 4px (1)
-- sm: 8px (2)
-- md: 16px (4)
-- lg: 24px (6)
-- xl: 32px (8)
-- 2xl: 48px (12)
-
-### Border Radius
-- sm: 8px (rounded-lg)
-- md: 12px (rounded-xl)
-- lg: 16px (rounded-2xl)
-- xl: 24px (rounded-3xl)
+| Screen | `currentTab` Value | Reachable Via |
+|--------|--------------------|---------------|
+| Pose Library | `'library'` | Bottom NavBar / Drawer |
+| AI Camera Scan | `'camera'` | Bottom NavBar center button / "Practice Pose" CTA |
+| Session History | `'history'` | Bottom NavBar / Drawer |
+| Athlete Profile | `'profile'` | Header avatar / Drawer |
+| Preferences | `'settings'` | Navigation Drawer sub-screen |
+| Help & Support | `'support'` | Navigation Drawer sub-screen |
+| About | `'about'` | Navigation Drawer sub-screen |
+| Admin Console | `'admin'` | Navigation Drawer (`SystemManager` role only) |
 
 ---
 
-## 🔌 Key Props Interfaces
+## 📊 Key Data Structures (`src/app/types.ts`)
 
-### Navigation Props
 ```typescript
-interface BottomNavProps {
-  currentPage: string;
-  onNavigate: (page: string) => void;
-}
+export type PoseCategory = 'Pom Motion' | 'Stunts' | 'Jumps' | 'Tumbling';
+export type PoseDifficulty = 'Beginner' | 'Intermediate' | 'Advanced';
+export const MASTERY_THRESHOLD = 80;
 
-interface HamburgerMenuProps {
-  onNavigate: (page: string) => void;
-  userName?: string;
-}
-```
-
-### Page Props
-```typescript
-interface HomePageProps {
-  onOpenCamera?: () => void;
-  onNavigate?: (page: string) => void;
-}
-
-interface PosePageProps {
-  onOpenCamera?: () => void;
-}
-```
-
-### Camera Props
-```typescript
-interface CameraViewProps {
-  onClose: () => void;
-}
-```
-
----
-
-## 📊 Data Structures
-
-### Pose Object
-```typescript
-interface Pose {
+export interface Pose {
   id: string;
   name: string;
-  category: 'Stunts' | 'Arm Motions' | 'Jumps' | 'Flexibility';
-  difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
-  progress: number; // 0-100
+  category: PoseCategory;
+  difficulty: PoseDifficulty;
   description: string;
+  practiceTips: PracticeTip[];
+  masteryPercentage: number;
+  imageUrl: string;
+  videoUrl?: string;
+  points: number;
+  idealAngles: Record<string, string>;
+  commonMistakes: string[];
+  icuStandardGuideline: string;
+  defaultSkeleton: {
+    joints: SkeletonJoint[];
+    lines: SkeletonLine[];
+  };
+  sampleCorrectionMessage: string;
 }
-```
 
-### User State
-```typescript
-const [isAuthenticated, setIsAuthenticated] = useState(false);
-const [currentPage, setCurrentPage] = useState('login');
-const [userName, setUserName] = useState('');
+export interface PracticeSession {
+  id: string;
+  poseId: string;
+  poseName: string;
+  timestamp: string;
+  accuracyScore: number;
+  durationSeconds: number;
+  corrections: string[];
+  icuScore?: number;
+  icuTier?: string;
+  measuredAngles?: Record<string, number>;
+  feedbackSummary: string;
+  capturedImage?: string;
+  rawImage?: string;
+  baseLeg?: 'left' | 'right';
+}
 ```
 
 ---
 
-## 🎯 MediaPipe Configuration
+## 🎯 MediaPipe Offline Configuration
 
-### Initialization
+MediaPipe Pose and Hands load strictly from bundled assets in `public/mediapipe/`:
+
 ```typescript
-const pose = new Pose({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-  },
+import { mediapipeLocateFile, mediapipeHandsLocateFile } from '../utils/mediapipeAssets';
+
+const pose = new MediaPipePose({
+  locateFile: mediapipeLocateFile, // '/mediapipe/pose/<file>'
 });
 
 pose.setOptions({
-  modelComplexity: 1,
+  modelComplexity: 0, // Must be 0 to match vendored pose_landmark_lite.tflite
   smoothLandmarks: true,
   enableSegmentation: false,
   minDetectionConfidence: 0.5,
   minTrackingConfidence: 0.5,
 });
-```
 
-### Landmarks (33 points)
-- 0-10: Face
-- 11-12: Shoulders
-- 13-14: Elbows
-- 15-16: Wrists
-- 23-24: Hips
-- 25-26: Knees
-- 27-28: Ankles
-
----
-
-## 🔄 Page Navigation Flow
-
-```
-Login/Signup → Home → {Pose Library, Profile, Settings, About, Help}
-                ↓
-              Camera → Results
-```
-
-### Route Mapping
-| Page | State Value |
-|------|-------------|
-| Login | `'login'` |
-| Signup | `'signup'` |
-| Home | `'home'` |
-| Pose Library | `'pose'` |
-| Profile | `'profile'` |
-| Settings | `'settings'` |
-| About | `'about'` |
-| Help | `'help'` |
-
----
-
-## 🛠️ Common Patterns
-
-### Opening Camera
-```typescript
-const handleCameraClick = () => {
-  setShowCamera(true);
-};
-```
-
-### Navigation
-```typescript
-const handleNavigation = (page: string) => {
-  if (page === 'logout') {
-    handleLogout();
-  } else {
-    setCurrentPage(page);
-  }
-};
-```
-
-### Authentication
-```typescript
-const handleLogin = (email: string, password: string) => {
-  setIsAuthenticated(true);
-  setUserName('Juan Dela Cruz');
-  setCurrentPage('home');
-};
-```
-
----
-
-## 🎬 Camera Permissions
-
-### Request Camera
-```typescript
-const stream = await navigator.mediaDevices.getUserMedia({
-  video: {
-    facingMode: 'user', // or 'environment'
-    width: { ideal: 1280 },
-    height: { ideal: 720 }
-  },
-  audio: false,
+const hands = new MediaPipeHands({
+  locateFile: mediapipeHandsLocateFile, // '/mediapipe/hands/<file>'
 });
 ```
 
-### Handle Errors
-```typescript
-catch (error) {
-  if (error.name === 'NotAllowedError') {
-    // Permission denied
-  } else if (error.name === 'NotFoundError') {
-    // No camera found
-  }
-}
-```
-
 ---
 
-## 📱 Responsive Classes
-
-### Mobile-First Utilities
-```css
-/* Containers */
-.p-4              /* padding: 16px */
-.pb-24            /* padding-bottom: 96px (nav space) */
-.rounded-2xl      /* border-radius: 16px */
-
-/* Layout */
-.grid-cols-2      /* 2 columns */
-.grid-cols-3      /* 3 columns */
-.gap-3            /* gap: 12px */
-
-/* Text */
-.text-sm          /* 14px */
-.text-lg          /* 18px */
-.text-2xl         /* 24px */
-.font-semibold    /* 600 weight */
-```
-
----
-
-## 🔍 Debugging Tips
-
-### Check Camera Status
-```typescript
-console.log('Camera stream:', stream);
-console.log('Video playing:', videoRef.current?.readyState);
-```
-
-### Monitor Pose Detection
-```typescript
-console.log('Landmarks:', results.poseLandmarks);
-console.log('Accuracy:', currentAccuracy);
-```
-
-### State Inspection
-```typescript
-console.log('Current page:', currentPage);
-console.log('Authenticated:', isAuthenticated);
-```
-
----
-
-## 🚨 Common Issues & Solutions
-
-### Issue: Camera not working
-**Solution**: Check browser permissions, ensure HTTPS, verify getUserMedia support
-
-### Issue: Pose detection slow
-**Solution**: Reduce video resolution, set modelComplexity to 0
-
-### Issue: Navigation not working
-**Solution**: Verify onNavigate prop is passed correctly
-
-### Issue: Styling not applied
-**Solution**: Check Tailwind class names, ensure theme.css is imported
-
----
-
-## 📦 Dependencies Overview
-
-### Core (Required)
-- `react` - UI library
-- `react-dom` - React renderer
-- `@mediapipe/pose` - Pose detection
-- `tailwindcss` - Styling
-- `lucide-react` - Icons
-
-### Dev Dependencies
-- `vite` - Build tool
-- `@vitejs/plugin-react` - React support
-- `typescript` - Type checking
-
----
-
-## 🎯 Performance Targets
-
-| Metric | Target |
-|--------|--------|
-| Page Load | < 2s |
-| Camera FPS | 30fps |
-| Detection Latency | < 100ms |
-| Bundle Size | < 500KB |
-
----
-
-## 📋 Checklist for New Features
-
-- [ ] Create component in appropriate folder
-- [ ] Add TypeScript interfaces
-- [ ] Implement responsive design (mobile-first)
-- [ ] Add error handling
-- [ ] Test on mobile viewport
-- [ ] Update navigation if needed
-- [ ] Add to this documentation
-
----
-
-## 🔗 Useful Resources
-
-- [MediaPipe Pose Docs](https://google.github.io/mediapipe/solutions/pose.html)
-- [Tailwind CSS Docs](https://tailwindcss.com/docs)
-- [React Docs](https://react.dev)
-- [Lucide Icons](https://lucide.dev)
-
----
-
-**Quick Start Commands:**
-```bash
-# Install
-pnpm install
-
-# Run dev
-pnpm run dev
-
-# Build
-pnpm run build
-
-# Format code (if configured)
-pnpm run format
-```
-
----
-
-**Last Updated**: May 12, 2026
+**Last Updated**: October 27, 2026

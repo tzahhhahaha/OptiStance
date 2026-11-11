@@ -32,7 +32,7 @@ try {
   await client.connect();
   console.log('✅ Connected to Supabase database');
 
-  const sqlPath = join(__dirname, '..', 'supabase', 'fix_rls_policies.sql');
+  const sqlPath = join(__dirname, '..', 'supabase', 'migrations/20261103000000_prelaunch_hardening.sql');
   const sql = readFileSync(sqlPath, 'utf8');
 
   console.log('📝 Applying RLS policies...');

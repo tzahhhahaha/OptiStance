@@ -10,16 +10,22 @@ vi.mock('../services/supabaseService', () => ({
 import { getPendingSessionCount, isSessionSynced, queuePracticeSession, syncPendingSessions } from '../services/offlineSync';
 import type { PracticeSession } from '../app/types';
 
-const makeSession = (id: string): PracticeSession => ({
+const makeSession = (
+  id: string,
+  source?: PracticeSession['source'],
+  extra: Partial<PracticeSession> = {}
+): PracticeSession => ({
   id,
   poseId: 'high-v',
   poseName: 'High V',
+  ...(source ? { source } : {}),
   timestamp: '2026-01-01T00:00:00.000Z',
   accuracyScore: 85,
   durationSeconds: 120,
   corrections: [],
   icuScore: 8,
   feedbackSummary: 'Great form',
+  ...extra,
 });
 
 const setOnline = (value: boolean) => {
@@ -36,8 +42,10 @@ interface StuntRow {
 let stuntRows: StuntRow[];
 let existingSessionResult: unknown;
 let insertResult: { error: unknown } | null;
+let insertedRecords: Array<Record<string, unknown>>;
 /** Every `.eq(column, value)` pair the code under test issued, in order. */
 let eqCalls: Array<[string, unknown]>;
+let likeCalls: Array<[string, unknown]>;
 
 const findStunt = (filters: Array<[string, unknown]>): StuntRow | null => {
   const match = stuntRows.find((row) =>
@@ -60,7 +68,14 @@ const createQuery = (table: string) => {
     eqCalls.push([col, val]);
     return chain;
   });
-  chain.insert = vi.fn(() => Promise.resolve(insertResult));
+  chain.like = vi.fn((col: string, val: unknown) => {
+    likeCalls.push([col, val]);
+    return chain;
+  });
+  chain.insert = vi.fn((record: Record<string, unknown>) => {
+    insertedRecords.push(record);
+    return Promise.resolve(insertResult);
+  });
   chain.maybeSingle = vi.fn(() => {
     if (table !== 'stunts') return Promise.resolve(existingSessionResult);
     const row = findStunt(filters);
@@ -78,9 +93,11 @@ beforeEach(() => {
   localStorage.clear();
   setOnline(true);
   eqCalls = [];
+  likeCalls = [];
   stuntRows = [{ id: 'st1', name: 'High V', pose_key: 'high-v' }];
   existingSessionResult = { data: null, error: null };
   insertResult = { error: null };
+  insertedRecords = [];
   mocks.from.mockImplementation((table: string) => createQuery(table));
 });
 
@@ -174,6 +191,37 @@ describe('syncPendingSessions', () => {
  * MAX_ATTEMPTS. The athlete's practice history disappeared silently.
  */
 describe('resolving the stunt a session belongs to', () => {
+  it('persists uploaded-image source metadata for history labels', async () => {
+    queuePracticeSession(makeSession('upload-1', 'upload'), 'u1');
+
+    await expect(syncPendingSessions()).resolves.toBe(1);
+
+    expect(insertedRecords[0].session_notes).toContain('[source:uploaded-image]');
+  });
+
+  it('persists duplicate fingerprints and duplicate status for synced history', async () => {
+    queuePracticeSession(
+      makeSession('upload-repeat', 'upload', {
+        imageFingerprint: '0123456789abcdef',
+        isDuplicateUpload: true,
+      }),
+      'u1'
+    );
+
+    await expect(syncPendingSessions()).resolves.toBe(1);
+
+    expect(insertedRecords[0].session_notes).toContain('[image-fingerprint:0123456789abcdef]');
+    expect(insertedRecords[0].session_notes).toContain('[duplicate-upload]');
+  });
+
+  it('checks for an existing row using only its stable local-session marker', async () => {
+    queuePracticeSession(makeSession('upload-2', 'upload'), 'u1');
+
+    await syncPendingSessions();
+
+    expect(likeCalls).toContainEqual(['session_notes', '%[local-session:upload-2]%']);
+  });
+
   it('prefers the stable pose_key over the editable name', async () => {
     queuePracticeSession(makeSession('s1'), 'u1');
     await syncPendingSessions();

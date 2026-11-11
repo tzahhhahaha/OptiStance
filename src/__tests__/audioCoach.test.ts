@@ -59,6 +59,46 @@ describe('audioCoach utility', () => {
     expect(cancelMock).toHaveBeenCalled();
   });
 
+  it('closes active sound effects on audioCoach.stop()', () => {
+    const closeMock = vi.fn(() => Promise.resolve());
+    const oscillator = {
+      type: 'sine',
+      frequency: { value: 0 },
+      connect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+    };
+    const gainNode = {
+      gain: {
+        setValueAtTime: vi.fn(),
+        linearRampToValueAtTime: vi.fn(),
+        exponentialRampToValueAtTime: vi.fn(),
+      },
+      connect: vi.fn(),
+    };
+    const context = {
+      currentTime: 0,
+      destination: {},
+      createOscillator: vi.fn(() => oscillator),
+      createGain: vi.fn(() => gainNode),
+      close: closeMock,
+    };
+    class MockAudioContext {
+      constructor() {
+        return context as unknown as MockAudioContext;
+      }
+    }
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: MockAudioContext,
+    });
+
+    audioCoach.playSuccessBeep();
+    audioCoach.stop();
+
+    expect(closeMock).toHaveBeenCalled();
+  });
+
   it('plays sounds safely without throwing errors', () => {
     expect(() => {
       audioCoach.playSuccessBeep();

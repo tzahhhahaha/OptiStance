@@ -74,4 +74,23 @@ describe('evaluateFraming', () => {
     expect(result.lightingStatus).toBe('low');
     expect(result.message).toContain('Dim gym lighting');
   });
+
+  it('allows waist-up / upper-body framing without full-body warnings when isArmMotion is true', () => {
+    // Athlete only visible from waist up (ankles missing / out of view)
+    const landmarks = createDummyLandmarks({
+      27: { x: 0, y: 0, visibility: 0.05 },
+      28: { x: 0, y: 0, visibility: 0.05 },
+    });
+
+    // Default full-body check would flag feet missing:
+    const fullBodyResult = evaluateFraming(landmarks, 'optimal');
+    expect(fullBodyResult.status).toBe('adjust');
+    expect(fullBodyResult.message).toContain('Keep full body');
+
+    // With isArmMotion enabled, upper body is considered optimal:
+    const armMotionResult = evaluateFraming(landmarks, 'optimal', { isArmMotion: true });
+    expect(armMotionResult.status).toBe('optimal');
+    expect(armMotionResult.isFullyInFrame).toBe(true);
+    expect(armMotionResult.message).toContain('Upper Body');
+  });
 });

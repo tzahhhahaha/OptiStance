@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
     signOut: vi.fn(),
   };
   const from = vi.fn();
+  const rpc = vi.fn().mockResolvedValue({ error: null });
   const channelBuilder = {
     on: vi.fn(() => channelBuilder),
     subscribe: vi.fn((cb?: (status: string) => void) => {
@@ -23,13 +24,14 @@ const mocks = vi.hoisted(() => {
   };
   const channel = vi.fn(() => channelBuilder);
   const removeChannel = vi.fn(() => Promise.resolve());
-  return { auth, from, channel, channelBuilder, removeChannel };
+  return { auth, from, rpc, channel, channelBuilder, removeChannel };
 });
 
 vi.mock('../services/supabaseService', () => ({
   supabase: {
     auth: mocks.auth,
     from: mocks.from,
+    rpc: mocks.rpc,
     channel: mocks.channel,
     removeChannel: mocks.removeChannel,
   },
@@ -45,9 +47,11 @@ import {
   subscribeToOnlineAthletes,
   trackAthletePresence,
   supabaseLogin,
+  supabaseResetPassword,
   supabaseResendConfirmation,
   supabaseSignOut,
   supabaseSignUp,
+  supabaseUpdatePassword,
 } from '../services/supabaseApi';
 
 interface Terminal {
@@ -77,6 +81,35 @@ beforeEach(() => {
   mocks.from.mockImplementation((table: string) => createQuery(tables[table]));
 });
 
+describe('password recovery', () => {
+  it('sends a reset link back to the current app origin', async () => {
+    mocks.auth.resetPasswordForEmail.mockResolvedValue({ error: null });
+
+    await supabaseResetPassword('  athlete@example.com  ');
+
+    expect(mocks.auth.resetPasswordForEmail).toHaveBeenCalledWith(
+      'athlete@example.com',
+      { redirectTo: window.location.origin }
+    );
+  });
+
+  it('updates the password through the active recovery session', async () => {
+    mocks.auth.updateUser.mockResolvedValue({ error: null });
+
+    await supabaseUpdatePassword('new-password-123');
+
+    expect(mocks.auth.updateUser).toHaveBeenCalledWith({ password: 'new-password-123' });
+  });
+
+  it('surfaces reset and password update errors', async () => {
+    mocks.auth.resetPasswordForEmail.mockResolvedValue({ error: { message: 'mail unavailable' } });
+    mocks.auth.updateUser.mockResolvedValue({ error: { message: 'recovery link expired' } });
+
+    await expect(supabaseResetPassword('athlete@example.com')).rejects.toThrow('mail unavailable');
+    await expect(supabaseUpdatePassword('new-password-123')).rejects.toThrow('recovery link expired');
+  });
+});
+
 describe('mapProfileRow', () => {
   it('maps an admin row to SystemManager', () => {
     expect(
@@ -91,6 +124,18 @@ describe('mapProfileRow', () => {
     expect(mapProfileRow({ id: 'u1', full_name: 'A', email: 'a@b.com', is_active: true }).isActive).toBe(true);
     // A missing column (older rows) must not read as deactivated.
     expect(mapProfileRow({ id: 'u1', full_name: 'A', email: 'a@b.com' }).isActive).toBe(true);
+  });
+
+  it('maps the stored last-seen timestamp', () => {
+    expect(
+      mapProfileRow({
+        id: 'u1',
+        full_name: 'A',
+        email: 'a@b.com',
+        last_seen_at: '2026-10-27T01:00:00Z',
+      }).lastSeenAt
+    ).toBe('2026-10-27T01:00:00Z');
+    expect(mapProfileRow({ id: 'u1', full_name: 'A', email: 'a@b.com' }).lastSeenAt).toBeUndefined();
   });
 
   it('reads the is_verified flag', () => {
@@ -193,6 +238,15 @@ describe('supabaseSignUp', () => {
     });
 
     await expect(supabaseSignUp('Alex', 'alex@example.com', 'password1')).rejects.toThrow(/rate limit/i);
+  });
+
+  it('throws when Supabase returns an obfuscated duplicate user (empty identities)', async () => {
+    mocks.auth.signUp.mockResolvedValue({
+      data: { user: { id: 'u1', identities: [] }, session: null },
+      error: null,
+    });
+
+    await expect(supabaseSignUp('Alex', 'alex@example.com', 'password1')).rejects.toThrow(/already registered/i);
   });
 });
 
@@ -408,6 +462,7 @@ describe('trackAthletePresence', () => {
       userId: 'u-test-123',
       onlineAt: expect.any(String),
     });
+    expect(mocks.rpc).toHaveBeenCalledWith('touch_last_seen');
 
     cleanup();
     expect(mocks.channelBuilder.untrack).toHaveBeenCalled();

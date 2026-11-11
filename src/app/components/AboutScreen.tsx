@@ -23,7 +23,8 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
   return (
     <div className="min-h-screen bg-[#050507] text-[#E0E0E6] flex flex-col font-sans">
       {/* Header Section */}
-      <header className="sticky top-0 w-full z-40 bg-[#050507]/80 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-16 flex items-center justify-between transition-all">
+      <header className="sticky top-0 w-full z-40 bg-[#050507]/90 backdrop-blur-2xl border-b border-white/[0.06] safe-header transition-all">
+        <div className="w-full px-4 md:px-8 h-16 flex items-center justify-between">
         <button
           onClick={onBack}
           aria-label="Back to Navigation Drawer"
@@ -36,6 +37,7 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
           <span className="text-[11px] font-extrabold tracking-widest text-zinc-400 uppercase">About OptiStance</span>
+        </div>
         </div>
       </header>
 
@@ -145,26 +147,6 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
           </div>
         </section>
 
-        {/* Built With Card */}
-        <section className="bg-[#0d0d12]/80 rounded-3xl shadow-[0_4px_30px_rgba(0,0,0,0.5)] p-6 col-span-1 md:col-span-2 border border-white/[0.08] backdrop-blur-xl text-center">
-          <h2 className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-zinc-500 mb-4">
-            Engineered Stack
-          </h2>
-          <div className="flex flex-wrap justify-center gap-2.5">
-            <span className="px-4 py-2 bg-white/5 border border-white/10 text-zinc-300 rounded-2xl text-xs font-semibold">
-              React 18
-            </span>
-            <span className="px-4 py-2 bg-white/5 border border-white/10 text-zinc-300 rounded-2xl text-xs font-semibold">
-              MediaPipe ML
-            </span>
-            <span className="px-4 py-2 bg-white/5 border border-white/10 text-zinc-300 rounded-2xl text-xs font-semibold">
-              Tailwind CSS v4
-            </span>
-            <span className="px-4 py-2 bg-white/5 border border-white/10 text-zinc-300 rounded-2xl text-xs font-semibold">
-              TensorFlow.js Kinematics
-            </span>
-          </div>
-        </section>
       </main>
 
       {/* Footer */}
@@ -176,4 +158,3 @@ export const AboutScreen: React.FC<AboutScreenProps> = ({ onBack, onNavigateTab 
     </div>
   );
 };
-

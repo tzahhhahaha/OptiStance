@@ -6,23 +6,6 @@ import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
  * lock holds, or trigger countdowns.
  */
 
-let hapticsSupported: boolean | null = null;
-
-const checkHapticsSupport = async (): Promise<boolean> => {
-  if (hapticsSupported !== null) return hapticsSupported;
-  try {
-    // Basic probe: if Haptics object exists in Capacitor runtime
-    if (typeof Haptics?.impact === 'function') {
-      hapticsSupported = true;
-      return true;
-    }
-  } catch {
-    // Ignore probe errors
-  }
-  hapticsSupported = false;
-  return false;
-};
-
 export const hapticFeedback = {
   /**
    * Subtle tactile feedback when an athlete enters the target pose zone (e.g. form >= 80%).
@@ -60,6 +43,16 @@ export const hapticFeedback = {
     } catch {
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
         try { navigator.vibrate(25); } catch { /* ignore */ }
+      }
+    }
+  },
+
+  async recordingToggle(): Promise<void> {
+    try {
+      await Haptics.impact({ style: ImpactStyle.Light });
+    } catch {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        try { navigator.vibrate(20); } catch { /* ignore */ }
       }
     }
   },

@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
   AlertTriangle,
   Video,
   VideoOff,
+  Maximize2,
+  Minimize2,
   Sparkles,
   Trophy,
   Lightbulb,
@@ -14,15 +16,15 @@ import {
   Pause,
   ShieldCheck,
   Activity,
-  Lock,
+  Dumbbell,
 } from 'lucide-react';
 import { Pose, MASTERY_THRESHOLD } from '../types';
 import { translate as t } from '../utils/localization';
 import { parseYouTubeUrl } from '../utils/parseYouTubeUrl';
+import { getPoseTrainingDrills } from '../scoring/trainingDrills';
 
 interface PoseDetailScreenProps {
   pose: Pose;
-  isAdmin?: boolean;
   onBack: () => void;
   onStartPractice: (pose: Pose) => void;
 }
@@ -31,7 +33,6 @@ type HeroViewMode = 'photo' | 'video';
 
 export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
   pose,
-  isAdmin = false,
   onBack,
   onStartPractice
 }) => {
@@ -40,7 +41,19 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
   const [videoProgress, setVideoProgress] = useState<number>(0);
   const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [isVideoFullView, setIsVideoFullView] = useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!isVideoFullView) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsVideoFullView(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isVideoFullView]);
 
   const youtubeInfo = pose.videoUrl ? parseYouTubeUrl(pose.videoUrl) : null;
   const hasDemoVideo = Boolean(
@@ -52,22 +65,25 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
   const isZero = pose.masteryPercentage === 0;
 
   const idealAngleEntries = Object.entries(pose.idealAngles || {});
+  const trainingDrills = getPoseTrainingDrills(pose);
 
   return (
     <div className="min-h-screen bg-[#050507] text-[#E0E0E6] pb-36 font-sans">
-      {/* Top App Bar - Immersive UI */}
-      <header className="sticky top-0 w-full z-40 bg-[#050507]/80 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-16 flex items-center justify-between">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider hover:bg-white/10 active:scale-95 transition-all"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>{t('Library')}</span>
-        </button>
-        <h1 className="font-extrabold text-sm md:text-base text-white uppercase tracking-[0.2em]">
-          {t('Pose Analysis')}
-        </h1>
-        <div className="w-20" /> {/* Balance spacer */}
+      {/* Top App Bar - Immersive UI with Safe Area */}
+      <header className="sticky top-0 w-full z-40 bg-[#050507]/90 backdrop-blur-2xl border-b border-white/[0.06] safe-header">
+        <div className="w-full px-4 md:px-8 h-16 flex items-center justify-between">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-zinc-300 hover:text-white font-bold text-xs uppercase tracking-wider hover:bg-white/10 active:scale-95 transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>{t('Library')}</span>
+          </button>
+          <h1 className="font-extrabold text-sm md:text-base text-white uppercase tracking-[0.2em]">
+            {t('Pose Analysis')}
+          </h1>
+          <div className="w-20" /> {/* Balance spacer */}
+        </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 md:px-6 pt-6 flex flex-col gap-6">
@@ -84,7 +100,7 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
-              <span>{t('Stance Photo')}</span>
+              <span>{t('Pose Check')}</span>
             </button>
             <button
               onClick={() => setViewMode('video')}
@@ -104,7 +120,13 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
             </button>
           </div>
 
-          <div className="relative w-full rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.8)] bg-black/60 aspect-[4/3] border border-white/10">
+          <div
+            className={
+              isVideoFullView && viewMode === 'video'
+                ? 'fixed inset-0 z-[100] h-[100dvh] w-screen overflow-hidden bg-[#090910]'
+                : 'relative w-full rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.8)] bg-black/60 aspect-[4/3] border border-white/10'
+            }
+          >
             {/* View 1: Standard Stance Photo */}
             {viewMode === 'photo' && (
               <>
@@ -124,6 +146,22 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
             {/* View 2: Video Tutorial (YouTube Embed OR Direct MP4 Video with Slow-Mo & Scrubbing) */}
             {viewMode === 'video' && (
               <div className="w-full h-full relative bg-[#090910] flex flex-col items-center justify-center overflow-hidden">
+                {hasDemoVideo && (
+                  <button
+                    type="button"
+                    onClick={() => setIsVideoFullView((fullView) => !fullView)}
+                    aria-label={isVideoFullView ? t('Exit full view') : t('Full view')}
+                    aria-pressed={isVideoFullView}
+                    className="absolute top-3 right-3 z-20 flex items-center gap-2 rounded-xl border border-white/20 bg-black/75 px-3 py-2 text-xs font-bold text-white shadow-lg backdrop-blur-md transition-colors hover:bg-black"
+                  >
+                    {isVideoFullView ? (
+                      <Minimize2 className="h-4 w-4" />
+                    ) : (
+                      <Maximize2 className="h-4 w-4" />
+                    )}
+                    <span>{t(isVideoFullView ? 'Exit Full View' : 'Full View')}</span>
+                  </button>
+                )}
                 {youtubeInfo?.isValid && youtubeInfo.data ? (
                   /* YouTube Tutorial Embed */
                   <iframe
@@ -253,12 +291,6 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
                 <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-[0.2em]">
                   {t(pose.category)}
                 </span>
-                {pose.isLocked && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm">
-                    <Lock className="w-2.5 h-2.5" />
-                    {isAdmin ? 'Locked for athletes' : t('Currently Unavailable')}
-                  </span>
-                )}
               </div>
               <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight">
                 {pose.name}
@@ -327,6 +359,28 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
               </li>
             ))}
           </ul>
+        </section>
+
+        <section className="bg-[#0d0d12]/80 border border-indigo-500/20 rounded-3xl p-6 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.6)] space-y-4">
+          <h3 className="text-[10px] font-extrabold text-indigo-300 uppercase tracking-[0.2em] flex items-center gap-2">
+            <Dumbbell className="w-3.5 h-3.5" />
+            <span>{t('Training Drills')}</span>
+          </h3>
+          <ul className="space-y-3">
+            {trainingDrills.map((drill) => (
+              <li
+                key={drill.id}
+                className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4 space-y-2"
+              >
+                <h4 className="text-sm font-bold text-white">{drill.title}</h4>
+                <p className="text-sm text-zinc-300 leading-relaxed">{drill.instructions}</p>
+                <p className="text-xs font-semibold text-indigo-300">{drill.dosage}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            Warm up before practice, stop if you feel pain, and get qualified coaching for advanced or high-risk movements.
+          </p>
         </section>
 
         {/* Common Pitfalls Card */}
@@ -447,36 +501,13 @@ export const PoseDetailScreen: React.FC<PoseDetailScreenProps> = ({
       {/* Fixed Bottom Action Bar - Immersive UI */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#050507]/90 backdrop-blur-2xl border-t border-white/[0.08] p-4 pb-[max(16px,env(safe-area-inset-bottom))] flex justify-center shadow-[0_-10px_40px_rgba(0,0,0,0.8)]">
         <div className="w-full max-w-md">
-          {pose.isLocked && !isAdmin ? (
-            <div className="flex flex-col items-center gap-2">
-              <button
-                disabled
-                className="w-full py-4 px-6 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold text-sm md:text-base tracking-wider uppercase flex items-center justify-center gap-2.5 cursor-not-allowed opacity-90 shadow-[0_0_20px_rgba(245,158,11,0.15)]"
-              >
-                <Lock className="w-5 h-5 text-amber-300" />
-                <span>{t('Currently Unavailable')}</span>
-              </button>
-              <p className="text-[11px] text-zinc-400 font-medium text-center">
-                {t('This pose is currently unavailable. Locked by admin.')}
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-1.5">
-              {pose.isLocked && isAdmin && (
-                <p className="text-[10px] text-amber-300 font-bold uppercase tracking-wider flex items-center gap-1 mb-1">
-                  <Lock className="w-3 h-3 text-amber-300" />
-                  <span>Admin Access (Locked for athletes)</span>
-                </p>
-              )}
-              <button
-                onClick={() => onStartPractice(pose)}
-                className="w-full py-4 px-6 rounded-2xl bg-white text-black font-extrabold text-sm md:text-base tracking-wider uppercase flex items-center justify-center gap-2.5 shadow-[0_0_30px_rgba(255,255,255,0.25)] hover:bg-zinc-200 active:scale-[0.98] transition-all relative overflow-hidden group"
-              >
-                <Video className="w-5 h-5 fill-current" />
-                <span>{t('Start Practice Session')}</span>
-              </button>
-            </div>
-          )}
+          <button
+            onClick={() => onStartPractice(pose)}
+            className="w-full py-4 px-6 rounded-2xl bg-white text-black font-extrabold text-sm md:text-base tracking-wider uppercase flex items-center justify-center gap-2.5 shadow-[0_0_30px_rgba(255,255,255,0.25)] hover:bg-zinc-200 active:scale-[0.98] transition-all relative overflow-hidden group"
+          >
+            <Video className="w-5 h-5 fill-current" />
+            <span>{t('Start Practice Session')}</span>
+          </button>
         </div>
       </div>
     </div>

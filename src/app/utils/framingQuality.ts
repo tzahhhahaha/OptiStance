@@ -106,7 +106,8 @@ export function evaluateLighting(
  */
 export function evaluateFraming(
   landmarks: LandmarkPoint[] | undefined | null,
-  lighting: 'optimal' | 'low' | 'overexposed' = 'optimal'
+  lighting: 'optimal' | 'low' | 'overexposed' = 'optimal',
+  options?: { isArmMotion?: boolean }
 ): FramingFeedback {
   if (!landmarks || landmarks.length < 33) {
     return {
@@ -118,6 +119,8 @@ export function evaluateFraming(
     };
   }
 
+  const isArmMotion = options?.isArmMotion ?? false;
+
   const nose = landmarks[0];
   const leftShoulder = landmarks[11];
   const rightShoulder = landmarks[12];
@@ -126,20 +129,22 @@ export function evaluateFraming(
   const leftAnkle = landmarks[27];
   const rightAnkle = landmarks[28];
 
-  const isVisible = (p?: LandmarkPoint) => !!p && (p.visibility ?? 1) >= 0.35;
+  const isVisible = (p?: LandmarkPoint) => !!p && (p.visibility ?? 1) >= 0.20;
 
   // 1. Distance Analysis
   let distanceStatus: 'optimal' | 'too-close' | 'too-far' = 'optimal';
   if (leftShoulder && rightShoulder) {
     const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
-    if (shoulderWidth > 0.46) {
+    // When practicing arm motions (waist-up), allow athlete to be closer (up to 0.65 shoulder width)
+    const maxShoulderWidth = isArmMotion ? 0.65 : 0.46;
+    if (shoulderWidth > maxShoulderWidth) {
       distanceStatus = 'too-close';
     } else if (shoulderWidth < 0.10 && isVisible(leftShoulder) && isVisible(rightShoulder)) {
       distanceStatus = 'too-far';
     }
   }
 
-  if (leftHip && rightHip && leftShoulder && rightShoulder && distanceStatus === 'optimal') {
+  if (!isArmMotion && leftHip && rightHip && leftShoulder && rightShoulder && distanceStatus === 'optimal') {
     const torsoHeight = Math.abs(((leftHip.y + rightHip.y) / 2) - ((leftShoulder.y + rightShoulder.y) / 2));
     if (torsoHeight > 0.55) {
       distanceStatus = 'too-close';
@@ -148,10 +153,10 @@ export function evaluateFraming(
     }
   }
 
-  // 2. Full Body Bounds Check
+  // 2. Full Body / Upper Body Bounds Check
   const headCutOff = nose && nose.y < 0.05;
-  const feetCutOff = (leftAnkle && leftAnkle.y > 0.95) || (rightAnkle && rightAnkle.y > 0.95);
-  const feetMissing = (!isVisible(leftAnkle) && !isVisible(rightAnkle));
+  const feetCutOff = !isArmMotion && ((leftAnkle && leftAnkle.y > 0.95) || (rightAnkle && rightAnkle.y > 0.95));
+  const feetMissing = !isArmMotion && (!isVisible(leftAnkle) && !isVisible(rightAnkle));
 
   // 3. Horizontal Center Check
   let offCenter = false;
@@ -167,7 +172,9 @@ export function evaluateFraming(
     return {
       status: 'warning',
       message: 'Dim gym lighting • Increase lighting for accurate scan',
-      isFullyInFrame: !headCutOff && !feetCutOff && !feetMissing,
+      isFullyInFrame: isArmMotion
+        ? !headCutOff && isVisible(leftShoulder) && isVisible(rightShoulder)
+        : !headCutOff && !feetCutOff && !feetMissing,
       lightingStatus: 'low',
       distanceStatus
     };
@@ -193,7 +200,7 @@ export function evaluateFraming(
     };
   }
 
-  if (feetCutOff || feetMissing) {
+  if (!isArmMotion && (feetCutOff || feetMissing)) {
     return {
       status: 'adjust',
       message: 'Step back • Keep full body & feet in frame',
@@ -225,7 +232,7 @@ export function evaluateFraming(
 
   return {
     status: 'optimal',
-    message: 'Optimal Framing • Full Body Detected',
+    message: isArmMotion ? 'Optimal Framing • Upper Body Detected' : 'Optimal Framing • Full Body Detected',
     isFullyInFrame: true,
     lightingStatus: lighting,
     distanceStatus: 'optimal'

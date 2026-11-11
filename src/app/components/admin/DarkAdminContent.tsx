@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Edit, Trash2, Grid3X3, List, MessageSquare, X, AlertCircle, ImageIcon, Upload, Loader2, Inbox, Search, Archive, RotateCcw, CheckCircle2, Lock, Unlock, Sparkles, Activity, Layers, Wand2, Crosshair, Copy, Check, Film } from 'lucide-react';
+import { Plus, Edit, Trash2, Grid3X3, List, MessageSquare, X, AlertCircle, ImageIcon, Upload, Loader2, Inbox, Search, Archive, RotateCcw, CheckCircle2, Sparkles, Activity, Layers, Wand2, Crosshair, Copy, Check, Film } from 'lucide-react';
 import {
   supabaseGetStunts,
   supabaseCreateStunt,
@@ -9,7 +9,6 @@ import {
   supabaseArchiveStunt,
   supabaseRestoreStunt,
   supabasePermanentlyDeleteStunt,
-  supabaseToggleStuntLock,
 } from '../../../services/supabaseApi';
 import { uploadPoseImage, deletePoseImage, validatePoseImage } from '../../../services/poseImages';
 import type { StuntCategory, DifficultyTier } from '../../../types/supabase';
@@ -38,8 +37,6 @@ interface Stunt {
    * which rendered a confident "0%" under every stunt in the library.
    */
   masteryRate: number | null;
-  /** Whether the stunt is temporarily locked/unavailable to athletes */
-  isLocked: boolean;
 }
 
 /** Slugify a stunt name so uploads land under a recognisable object path. */
@@ -146,15 +143,6 @@ export default function DarkAdminContent() {
         rollUpByStunt(sessions, MASTERY_THRESHOLD).map((r) => [r.stuntId, r])
       );
 
-      const lockedFromStorage = (() => {
-        try {
-          const raw = localStorage.getItem('optistance_locked_stunts');
-          return new Set<string>(raw ? JSON.parse(raw) : []);
-        } catch {
-          return new Set<string>();
-        }
-      })();
-
       const mapRows = (rows: typeof activeData): Stunt[] =>
         rows.map((s) => {
           const rollup = rollups.get(s.id);
@@ -164,12 +152,6 @@ export default function DarkAdminContent() {
             rawUrl && !isLegacyGoogleUrl(rawUrl)
               ? rawUrl
               : bundledFallback || rawUrl;
-
-          const isLocked =
-            Boolean(s.is_locked) ||
-            lockedFromStorage.has(s.id) ||
-            (s.pose_key ? lockedFromStorage.has(s.pose_key) : false) ||
-            lockedFromStorage.has(s.name.toLowerCase().trim());
 
           return {
             id: s.id,
@@ -182,7 +164,6 @@ export default function DarkAdminContent() {
             coachingTips: s.coaching_cues || '',
             attempts: rollup?.attempts ?? 0,
             masteryRate: rollup?.masteryRate ?? null,
-            isLocked,
           };
         });
 
@@ -274,45 +255,6 @@ export default function DarkAdminContent() {
     }
   };
 
-  const [isTogglingLock, setIsTogglingLock] = useState<string | null>(null);
-  const [selectedAvailability, setSelectedAvailability] = useState<'all' | 'unlocked' | 'locked'>('all');
-
-  const handleToggleLock = async (stunt: Stunt) => {
-    const nextLocked = !stunt.isLocked;
-    setIsTogglingLock(stunt.id);
-    setFormError(null);
-
-    try {
-      await supabaseToggleStuntLock(stunt.id, nextLocked);
-      setStunts((prev) =>
-        prev.map((s) => (s.id === stunt.id ? { ...s, isLocked: nextLocked } : s))
-      );
-      if (selectedStunt?.id === stunt.id) {
-        setSelectedStunt((prev) => (prev ? { ...prev, isLocked: nextLocked } : null));
-      }
-      window.dispatchEvent(
-        new CustomEvent('optistance:stunt-lock', {
-          detail: { stuntId: stunt.id, stuntName: stunt.name, poseKey: stunt.poseKey, isLocked: nextLocked },
-        })
-      );
-      setActionMessage(
-        nextLocked
-          ? `"${stunt.name}" is now locked (temporarily unavailable to athletes).`
-          : `"${stunt.name}" is now unlocked (available to athletes).`
-      );
-      setTimeout(() => setActionMessage(null), 3500);
-    } catch (e) {
-      console.error('Failed to save stunt availability:', e);
-      setFormError(
-        e instanceof Error
-          ? `Could not update "${stunt.name}": ${e.message}`
-          : `Could not update "${stunt.name}". Check the network and admin permissions, then retry.`
-      );
-    } finally {
-      setIsTogglingLock(null);
-    }
-  };
-
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedStunt, setSelectedStunt] = useState<Stunt | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -334,15 +276,13 @@ export default function DarkAdminContent() {
       stunt.category.toLowerCase().includes(trimmed) ||
       stunt.difficulty.toLowerCase().includes(trimmed);
 
-    const matchesCategory = selectedCategory === 'all' || stunt.category === selectedCategory;
+    const matchesCategory = selectedCategory === 'all' || (
+      selectedCategory === 'stunt'
+        ? stunt.category !== 'pom_motion'
+        : stunt.category === selectedCategory
+    );
     const matchesDifficulty = selectedDifficulty === 'all' || stunt.difficulty === selectedDifficulty;
-    const matchesAvailability =
-      activeTab !== 'active' ||
-      selectedAvailability === 'all' ||
-      (selectedAvailability === 'locked' && stunt.isLocked) ||
-      (selectedAvailability === 'unlocked' && !stunt.isLocked);
-
-    return matchesSearch && matchesCategory && matchesDifficulty && matchesAvailability;
+    return matchesSearch && matchesCategory && matchesDifficulty;
   });
 
   // Shared add/edit form state
@@ -428,7 +368,7 @@ export default function DarkAdminContent() {
   const openEditForm = (stunt: Stunt) => {
     setEditingStunt(stunt);
     setFormName(stunt.name);
-    setFormCategory(stunt.category);
+    setFormCategory(stunt.category === 'pom_motion' ? 'pom_motion' : 'stunt');
     setFormDifficulty(stunt.difficulty);
     setFormTips(stunt.coachingTips || '');
     setFormError(null);
@@ -533,7 +473,7 @@ export default function DarkAdminContent() {
       setFormError('A reference stance image is required so athletes have a visual model.');
       return;
     }
-    if (!formTips.trim()) {
+    if (!editingStunt && !formTips.trim()) {
       setFormError('Please provide coaching tips / key cues for athletes.');
       return;
     }
@@ -607,7 +547,6 @@ export default function DarkAdminContent() {
               // makes the UI say "no attempts" instead of "0% mastery".
               attempts: 0,
               masteryRate: null,
-              isLocked: Boolean(created.is_locked),
             },
             ...prev,
           ]);
@@ -633,14 +572,8 @@ export default function DarkAdminContent() {
     setIsSyncingLibrary(true);
     setLoadError(null);
     try {
-      const mapCat = (c: string): StuntCategory => {
-        const cat = c.toLowerCase();
-        if (cat.includes('pom')) return 'pom_motion';
-        if (cat.includes('jump')) return 'jump';
-        if (cat.includes('tumb')) return 'tumbling';
-        if (cat.includes('liberty')) return 'liberty';
-        return 'stunt';
-      };
+      const mapCat = (category: string): StuntCategory =>
+        category.toLowerCase().includes('pom') ? 'pom_motion' : 'stunt';
 
       for (const pose of INITIAL_POSES) {
         await supabaseCreateStunt({
@@ -651,7 +584,6 @@ export default function DarkAdminContent() {
           reference_image_url: pose.imageUrl,
           coaching_cues: pose.description,
           is_archived: false,
-          is_locked: false,
         });
       }
       await loadStunts();
@@ -838,11 +770,7 @@ export default function DarkAdminContent() {
           >
             <option value="all" className="bg-[#0f0f13] text-white">All Categories</option>
             <option value="pom_motion" className="bg-[#0f0f13] text-white">Pom Motion</option>
-            <option value="stunt" className="bg-[#0f0f13] text-white">Stunt</option>
-            <option value="jump" className="bg-[#0f0f13] text-white">Jump</option>
-            <option value="tumbling" className="bg-[#0f0f13] text-white">Tumbling</option>
-            <option value="liberty" className="bg-[#0f0f13] text-white">Liberty</option>
-            <option value="other" className="bg-[#0f0f13] text-white">Other</option>
+            <option value="stunt" className="bg-[#0f0f13] text-white">Stunts</option>
           </select>
 
           <select
@@ -856,19 +784,6 @@ export default function DarkAdminContent() {
             <option value="intermediate" className="bg-[#0f0f13] text-white">Intermediate</option>
             <option value="advanced" className="bg-[#0f0f13] text-white">Advanced</option>
           </select>
-
-          {activeTab === 'active' && (
-            <select
-              value={selectedAvailability}
-              onChange={(e) => setSelectedAvailability(e.target.value as 'all' | 'unlocked' | 'locked')}
-              className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs font-semibold text-zinc-300 focus:outline-none focus:border-indigo-500/60"
-              aria-label="Filter by availability"
-            >
-              <option value="all" className="bg-[#0f0f13] text-white">All Availability</option>
-              <option value="unlocked" className="bg-[#0f0f13] text-white">Available</option>
-              <option value="locked" className="bg-[#0f0f13] text-white">Locked</option>
-            </select>
-          )}
 
           {/* View Mode Toggle */}
           <div className="flex gap-1 border border-white/[0.08] rounded-xl p-1 bg-white/[0.02]" role="group" aria-label="Layout">
@@ -925,7 +840,6 @@ export default function DarkAdminContent() {
               setSearchQuery('');
               setSelectedCategory('all');
               setSelectedDifficulty('all');
-              setSelectedAvailability('all');
             }}
             className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs text-zinc-300 font-semibold"
           >
@@ -965,16 +879,11 @@ export default function DarkAdminContent() {
                       In library
                     </span>
                   )}
-                  {activeTab === 'archive' ? (
+                  {activeTab === 'archive' && (
                     <span className="absolute top-2 right-2 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/30 text-amber-200 border border-amber-400/40">
                       Archived
                     </span>
-                  ) : stunt.isLocked ? (
-                    <span className="absolute top-2 right-2 text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500 text-black border border-amber-300 shadow flex items-center gap-1">
-                      <Lock className="w-2.5 h-2.5" />
-                      Locked
-                    </span>
-                  ) : null}
+                  )}
                   {stunt.refVideo && (
                     <span className="absolute bottom-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/75 backdrop-blur-sm text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
                       <Film className="w-2.5 h-2.5" /> Video
@@ -1033,32 +942,6 @@ export default function DarkAdminContent() {
                     >
                       <Edit className="w-3 h-3" />
                       <span>Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleToggleLock(stunt)}
-                      disabled={isTogglingLock === stunt.id}
-                      aria-label={stunt.isLocked ? `Unlock ${stunt.name}` : `Lock ${stunt.name}`}
-                      title={stunt.isLocked ? 'Currently locked (unavailable to athletes). Click to unlock.' : 'Currently unlocked. Click to lock and make unavailable.'}
-                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        stunt.isLocked
-                          ? 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-300 border border-amber-400/40'
-                          : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                      }`}
-                    >
-                      {isTogglingLock === stunt.id ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                      ) : stunt.isLocked ? (
-                        <>
-                          <Unlock className="w-3 h-3 text-amber-300" />
-                          <span>Unlock</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock className="w-3 h-3 text-emerald-400" />
-                          <span>Lock</span>
-                        </>
-                      )}
                     </button>
                     <button
                       type="button"
@@ -1142,14 +1025,6 @@ export default function DarkAdminContent() {
                           In library
                         </span>
                       )}
-                      {activeTab !== 'archive' && (
-                        stunt.isLocked ? (
-                          <span className="inline-flex items-center gap-1 mt-1 text-[9px] font-extrabold uppercase tracking-wider w-fit px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/30">
-                            <Lock className="w-2.5 h-2.5" />
-                            Locked
-                          </span>
-                        ) : null
-                      )}
                       {activeTab === 'archive' && (
                         <span className="block mt-1 text-[9px] font-bold uppercase tracking-wider w-fit px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/30">
                           Archived
@@ -1196,26 +1071,6 @@ export default function DarkAdminContent() {
                               className="p-2 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 transition-all"
                             >
                               <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleToggleLock(stunt)}
-                              disabled={isTogglingLock === stunt.id}
-                              aria-label={stunt.isLocked ? `Unlock ${stunt.name}` : `Lock ${stunt.name}`}
-                              title={stunt.isLocked ? 'Currently locked (unavailable to athletes). Click to unlock.' : 'Currently unlocked. Click to lock and make unavailable.'}
-                              className={`p-2 rounded-lg transition-all ${
-                                stunt.isLocked
-                                  ? 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-300 border border-amber-400/40'
-                                  : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              }`}
-                            >
-                              {isTogglingLock === stunt.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : stunt.isLocked ? (
-                                <Unlock className="w-4 h-4 text-amber-300" />
-                              ) : (
-                                <Lock className="w-4 h-4 text-emerald-400" />
-                              )}
                             </button>
                             <button
                               type="button"
@@ -1276,14 +1131,6 @@ export default function DarkAdminContent() {
             <div className="p-6 md:p-8 border-b border-white/[0.08] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3 flex-wrap">
                 <h3 className="text-2xl font-black text-white">{selectedStunt.name}</h3>
-                {activeTab !== 'archive' && (
-                  selectedStunt.isLocked ? (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5" />
-                      Locked (Unavailable)
-                    </span>
-                  ) : null
-                )}
               </div>
               <button
                 type="button"
@@ -1357,26 +1204,7 @@ export default function DarkAdminContent() {
                       className="flex-1 py-3 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-300 font-bold transition-all flex items-center justify-center gap-1.5"
                     >
                       <Edit className="w-4 h-4" />
-                      <span>Edit Stunt</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleToggleLock(selectedStunt)}
-                      disabled={isTogglingLock === selectedStunt.id}
-                      className={`flex-1 py-3 rounded-xl border font-bold transition-all flex items-center justify-center gap-1.5 ${
-                        selectedStunt.isLocked
-                          ? 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
-                          : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-                      }`}
-                    >
-                      {isTogglingLock === selectedStunt.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : selectedStunt.isLocked ? (
-                        <Unlock className="w-4 h-4 text-amber-300" />
-                      ) : (
-                        <Lock className="w-4 h-4 text-emerald-400" />
-                      )}
-                      <span>{selectedStunt.isLocked ? 'Unlock Pose' : 'Lock Pose'}</span>
+                      <span>Edit Pose</span>
                     </button>
                     <button
                       type="button"
@@ -1545,7 +1373,7 @@ export default function DarkAdminContent() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-5 sm:p-6 border-b border-white/[0.08] flex items-center justify-between shrink-0 bg-[#0d0d12]/80">
-              <h3 className="text-lg font-black text-white">{editingStunt ? 'Edit Stunt / Pose' : 'Add to Library'}</h3>
+              <h3 className="text-lg font-black text-white">{editingStunt ? 'Edit Pose' : 'Add to Library'}</h3>
               <button
                 type="button"
                 onClick={() => setFormOpen(false)}
@@ -1565,8 +1393,8 @@ export default function DarkAdminContent() {
                   <span className={`flex items-center gap-1 font-medium ${(formImageUrl || pendingFile) ? 'text-emerald-400' : 'text-zinc-500'}`}>
                     <CheckCircle2 className="w-3.5 h-3.5" /> Photo
                   </span>
-                  <span className={`flex items-center gap-1 font-medium ${formTips.trim() ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Coaching Tips
+                  <span className={`flex items-center gap-1 font-medium ${formTips.trim() || editingStunt ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Coaching Tips{editingStunt && !formTips.trim() ? ' (optional)' : ''}
                   </span>
                 </div>
               </div>
@@ -1591,12 +1419,8 @@ export default function DarkAdminContent() {
                   name="stunt-category"
                   value={formCategory}
                   options={[
-                    { value: 'stunt', label: 'Stunt' },
-                    { value: 'jump', label: 'Jump' },
-                    { value: 'tumbling', label: 'Tumbling' },
-                    { value: 'pom_motion', label: 'Pom' },
-                    { value: 'liberty', label: 'Liberty' },
-                    { value: 'other', label: 'Other' },
+                    { value: 'pom_motion', label: 'Pom Motion' },
+                    { value: 'stunt', label: 'Stunts' },
                   ]}
                   onChange={(v) => setFormCategory(v as Stunt['category'])}
                 />
@@ -1967,7 +1791,13 @@ export default function DarkAdminContent() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSaving || isUploading || !formName.trim() || (!formImageUrl && !pendingFile) || !formTips.trim()}
+                  disabled={
+                    isSaving ||
+                    isUploading ||
+                    !formName.trim() ||
+                    (!formImageUrl && !pendingFile) ||
+                    (!editingStunt && !formTips.trim())
+                  }
                   className="flex-1 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 text-sm shadow-lg shadow-indigo-500/20"
                 >
                   {isUploading || isSaving ? (

@@ -3,7 +3,13 @@
  * Evaluates athlete landmarks strictly against target pose standards.
  */
 
-import { extractKinematicAngles, type LandmarkPoint } from './angles';
+import {
+  calculateJointAngle,
+  calculateVectorElevationFromHorizontal,
+  calculateVectorTiltFromVertical,
+  extractKinematicAngles,
+  type LandmarkPoint,
+} from './angles';
 import {
   POSE_STANDARDS,
   detectBaseLeg,
@@ -49,9 +55,23 @@ const JOINT_NAMES: Record<string, string> = {
   standingKnee: 'Standing Knee',
   liftedKnee: 'Lifted Knee',
   liftedHip: 'Lifted Hip',
+  standingLegAlignment: 'Standing Leg Alignment',
+  rearLegElevation: 'Rear Leg Elevation',
+  leftArmElevation: 'Left Arm Elevation',
+  rightArmElevation: 'Right Arm Elevation',
   hipSpread: 'Hip Straddle',
   torsoLean: 'Torso Alignment',
 };
+
+function midpoint(a: LandmarkPoint | undefined, b: LandmarkPoint | undefined): LandmarkPoint | undefined {
+  if (!a || !b) return undefined;
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    z: ((a.z ?? 0) + (b.z ?? 0)) / 2,
+    visibility: Math.min(a.visibility ?? 1, b.visibility ?? 1),
+  };
+}
 
 /**
  * Scores the current athlete frame against the chosen target pose.
@@ -61,6 +81,7 @@ export function scorePose(
   landmarks: LandmarkPoint[] | undefined | null,
   options?: {
     difficulty?: 'Beginner' | 'Intermediate' | 'Advanced';
+    aspectRatio?: number;
   }
 ): PoseScoreResult {
   const normKey = normalizePoseKey(targetPoseIdOrName);
@@ -81,7 +102,8 @@ export function scorePose(
   }
 
   // 1. Extract measured joint angles
-  const rawAngles = extractKinematicAngles(landmarks);
+  const aspectRatio = options?.aspectRatio ?? 1;
+  const rawAngles = extractKinematicAngles(landmarks, aspectRatio);
   const measuredAngles = { ...rawAngles };
 
   // 2. Handle single-leg stunt mapping (standing vs lifted leg)
@@ -91,13 +113,38 @@ export function scorePose(
     baseLeg = legDetection.baseLeg;
 
     if (baseLeg === 'left') {
-      measuredAngles.standingKnee = rawAngles.leftKnee ?? 180;
-      measuredAngles.liftedKnee = rawAngles.rightKnee ?? 90;
-      measuredAngles.liftedHip = rawAngles.rightHip ?? 90;
+      if (rawAngles.leftKnee !== undefined) measuredAngles.standingKnee = rawAngles.leftKnee;
+      if (rawAngles.rightKnee !== undefined) measuredAngles.liftedKnee = rawAngles.rightKnee;
+      if (standard.id !== 'arabesque' && rawAngles.rightHip !== undefined) measuredAngles.liftedHip = rawAngles.rightHip;
     } else {
-      measuredAngles.standingKnee = rawAngles.rightKnee ?? 180;
-      measuredAngles.liftedKnee = rawAngles.leftKnee ?? 90;
-      measuredAngles.liftedHip = rawAngles.leftHip ?? 90;
+      if (rawAngles.rightKnee !== undefined) measuredAngles.standingKnee = rawAngles.rightKnee;
+      if (rawAngles.leftKnee !== undefined) measuredAngles.liftedKnee = rawAngles.leftKnee;
+      if (standard.id !== 'arabesque' && rawAngles.leftHip !== undefined) measuredAngles.liftedHip = rawAngles.leftHip;
+    }
+
+    if (standard.id === 'arabesque') {
+      const liftedSide = baseLeg === 'left' ? 'right' : 'left';
+      const standingAnkle = landmarks[baseLeg === 'left' ? 27 : 28];
+      const liftedHip = landmarks[liftedSide === 'left' ? 23 : 24];
+      const liftedKnee = landmarks[liftedSide === 'left' ? 25 : 26];
+      const liftedAnkle = landmarks[liftedSide === 'left' ? 27 : 28];
+      const shoulderMid = midpoint(landmarks[11], landmarks[12]);
+
+      const liftedHipAngle = calculateJointAngle(shoulderMid, liftedHip, liftedKnee, aspectRatio);
+      if (liftedHipAngle) measuredAngles.liftedHip = liftedHipAngle.angle;
+
+      const standingHip = landmarks[baseLeg === 'left' ? 23 : 24];
+      const standingLegAlignment = calculateVectorTiltFromVertical(standingHip, standingAnkle, aspectRatio);
+      if (standingLegAlignment !== null) measuredAngles.standingLegAlignment = standingLegAlignment;
+
+      const rearLegElevation = calculateVectorElevationFromHorizontal(liftedHip, liftedAnkle, aspectRatio);
+      if (rearLegElevation !== null) measuredAngles.rearLegElevation = rearLegElevation;
+
+      const leftArmElevation = calculateVectorElevationFromHorizontal(landmarks[11], landmarks[15], aspectRatio);
+      if (leftArmElevation !== null) measuredAngles.leftArmElevation = leftArmElevation;
+
+      const rightArmElevation = calculateVectorElevationFromHorizontal(landmarks[12], landmarks[16], aspectRatio);
+      if (rightArmElevation !== null) measuredAngles.rightArmElevation = rightArmElevation;
     }
   }
 
@@ -107,13 +154,20 @@ export function scorePose(
   let totalWeightedScore = 0;
   let totalWeight = 0;
   let totalDeviationPenalty = 0;
+  let hasMissingRequiredMeasurement = false;
 
   let worstEvaluation: JointEvaluation | null = null;
   let maxSeverity = 0;
 
   for (const [jointKey, jointStd] of Object.entries(standard.joints)) {
     const measured = measuredAngles[jointKey];
-    if (measured === undefined) continue;
+    if (measured === undefined) {
+      if (standard.id === 'arabesque') {
+        totalWeight += jointStd.weight;
+        hasMissingRequiredMeasurement = true;
+      }
+      continue;
+    }
 
     const target = jointStd.target;
     const tolerance = isAdvanced ? jointStd.toleranceAdvanced : jointStd.toleranceBeginner;
@@ -190,6 +244,8 @@ export function scorePose(
     primaryCoachCue = `Flawless ${standard.name}! Outstanding extension and lock!`;
   } else if (worstEvaluation && worstEvaluation.cue) {
     primaryCoachCue = worstEvaluation.cue;
+  } else if (hasMissingRequiredMeasurement) {
+    primaryCoachCue = 'Keep your full body and both arms visible so the Arabesque can be scored.';
   } else if (formScore >= 75) {
     primaryCoachCue = `Strong hold! Refine joint lines to reach 90%+ mastery!`;
   } else {
@@ -197,7 +253,7 @@ export function scorePose(
   }
 
   return {
-    isTargetRecognized: formScore >= 40,
+    isTargetRecognized: formScore >= 40 && !hasMissingRequiredMeasurement,
     formScore,
     icuScore,
     icuTier,

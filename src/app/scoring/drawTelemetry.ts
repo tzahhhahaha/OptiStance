@@ -38,6 +38,7 @@ export const JOINT_LANDMARK_MAP: Record<string, number> = {
   rightKnee: 26,
   standingKnee: 25, // dynamic
   liftedKnee: 26,
+  liftedHip: 23,
 };
 
 export function smoothHandLandmarks(
@@ -130,6 +131,8 @@ export function drawBiomechanicalSkeleton(
         lmId = scoreResult.baseLeg === 'right' ? 26 : 25;
       } else if (ev.jointKey === 'liftedKnee') {
         lmId = scoreResult.baseLeg === 'right' ? 25 : 26;
+      } else if (ev.jointKey === 'liftedHip') {
+        lmId = scoreResult.baseLeg === 'right' ? 23 : 24;
       }
 
       if (lmId !== undefined) {

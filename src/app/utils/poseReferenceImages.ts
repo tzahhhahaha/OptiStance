@@ -14,6 +14,7 @@ import { Pose } from '../types';
 export interface PoseImageSource {
   pose_key?: string | null;
   reference_image_url?: string | null;
+  reference_video_url?: string | null;
 }
 
 /** Check if a URL points to the expired temporary Google URLs seeded in early builds. */
@@ -100,6 +101,32 @@ export function applyAdminPoseImages(poses: Pose[], stunts: PoseImageSource[]): 
     if (!url || url === pose.imageUrl) return pose;
     changed = true;
     return { ...pose, imageUrl: url };
+  });
+
+  return changed ? next : poses;
+}
+
+/**
+ * Overlay admin-managed tutorial videos onto the bundled pose library.
+ * Poses without an admin video retain any video URL bundled with the app.
+ */
+export function applyAdminPoseVideos(poses: Pose[], stunts: PoseImageSource[]): Pose[] {
+  if (stunts.length === 0) return poses;
+
+  const videosByKey = new Map<string, string>();
+  for (const stunt of stunts) {
+    const key = stunt.pose_key?.trim();
+    const url = stunt.reference_video_url?.trim();
+    if (key && url) videosByKey.set(key, url);
+  }
+  if (videosByKey.size === 0) return poses;
+
+  let changed = false;
+  const next = poses.map((pose) => {
+    const videoUrl = videosByKey.get(pose.id);
+    if (!videoUrl || videoUrl === pose.videoUrl) return pose;
+    changed = true;
+    return { ...pose, videoUrl };
   });
 
   return changed ? next : poses;

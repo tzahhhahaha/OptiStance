@@ -13,6 +13,7 @@ export interface User {
   updated_at: string;
   is_active: boolean;
   is_verified: boolean;
+  last_seen_at?: string | null;
 }
 
 export interface AthleteProfile {
@@ -50,7 +51,6 @@ export interface Stunt {
   target_points: number;
   mastery_threshold: number;
   is_archived: boolean;
-  is_locked?: boolean;
   created_at: string;
   updated_at: string;
 }

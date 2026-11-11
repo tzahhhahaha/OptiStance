@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Database, HardDrive, Info, RefreshCw, ShieldCheck, Wifi, WifiOff, Trash2 } from 'lucide-react';
+import { Database, HardDrive, Info, RefreshCw, Wifi, WifiOff, Trash2 } from 'lucide-react';
 import { mediaService } from '../../../services/supabaseService';
 import packageJson from '../../../../package.json';
 
@@ -148,28 +148,6 @@ export default function DarkAdminSettings() {
           tone={storageError ? 'warn' : 'neutral'}
         />
       </div>
-
-      {/* Platform capabilities — stated, not toggleable. */}
-      <section className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">
-        <h4 className="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-white">
-          <ShieldCheck className="h-4 w-4 text-emerald-400" />
-          Account recovery
-        </h4>
-        <div className="space-y-3 text-sm leading-relaxed text-zinc-400">
-          <p>
-            <span className="font-bold text-white">Self-service password reset is
-            unavailable.</span> This project has no SMTP host configured, so Supabase
-            cannot deliver a reset email. Athletes who are locked out must ask an
-            administrator, who can set a new password from{' '}
-            <span className="text-zinc-300">Athletes → Manage → Reset Password</span>.
-          </p>
-          <p className="text-xs text-zinc-500">
-            Every admin reset is written to <code>password_reset_audit</code>. The
-            password itself is never logged, emailed, or recoverable — hand it over
-            over a channel you trust.
-          </p>
-        </div>
-      </section>
 
       {/* Local device data — real, and clearable. */}
       <section className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6">

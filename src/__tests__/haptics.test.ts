@@ -40,6 +40,11 @@ describe('hapticFeedback service', () => {
     expect(Haptics.impact).toHaveBeenCalledWith({ style: ImpactStyle.Medium });
   });
 
+  it('triggers Light impact when recording starts or stops', async () => {
+    await hapticFeedback.recordingToggle();
+    expect(Haptics.impact).toHaveBeenCalledWith({ style: ImpactStyle.Light });
+  });
+
   it('triggers Warning notification on form deviation', async () => {
     await hapticFeedback.formWarning();
     expect(Haptics.notification).toHaveBeenCalledWith({ type: NotificationType.Warning });

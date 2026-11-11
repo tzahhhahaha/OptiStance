@@ -107,11 +107,23 @@ const readScopedList = <T,>(base: string, userId: string | null | undefined, fal
   return readJson<T[]>(base) ?? fallback;
 };
 
+const dedupeSessions = (list: PracticeSession[]): PracticeSession[] => {
+  const seen = new Set<string>();
+  const out: PracticeSession[] = [];
+  for (const item of list) {
+    if (!item || typeof item.id !== 'string') continue;
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+};
+
 export const readAccountSessions = (userId: string | null | undefined): PracticeSession[] =>
-  readScopedList<PracticeSession>(SESSIONS_KEY, userId, []);
+  dedupeSessions(readScopedList<PracticeSession>(SESSIONS_KEY, userId, []));
 
 export const writeAccountSessions = (userId: string | null | undefined, sessions: PracticeSession[]) =>
-  writeJson(scopedKey(SESSIONS_KEY, userId), sessions);
+  writeJson(scopedKey(SESSIONS_KEY, userId), dedupeSessions(sessions));
 
 export const readAccountPoses = (userId: string | null | undefined): Pose[] =>
   readScopedList<Pose>(POSES_KEY, userId, []);
@@ -166,4 +178,5 @@ export const migrateLegacyAccountData = (userId: string | null | undefined): str
 export const clearAccountData = (userId: string | null | undefined) => {
   localStorage.removeItem(scopedKey(SESSIONS_KEY, userId));
   localStorage.removeItem(scopedKey(POSES_KEY, userId));
+  localStorage.removeItem(scopedKey(SYNCED_KEY, userId));
 };

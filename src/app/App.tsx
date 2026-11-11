@@ -16,10 +16,11 @@ import { ProfileScreen } from './components/ProfileScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { INITIAL_POSES } from './data/poses';
-import { Pose, PracticeSession, AppSettings, UserProfile, MASTERY_THRESHOLD, EditableProfileFields } from './types';
-import { isSupabaseConfigured, supabase } from '../services/supabaseService';
+import { Pose, PracticeSession, AppSettings, UserProfile, MASTERY_THRESHOLD } from './types';
+import { supabase } from '../services/supabaseService';
 import { getPendingSessionCount, queuePracticeSession, syncPendingSessions } from '../services/offlineSync';
 import {
+  checkAndCompleteEmailConfirmation,
   getCurrentUser,
   getVerificationState,
   resolveStartupAuth,
@@ -30,8 +31,6 @@ import {
   mergePracticeSessions,
   supabaseGetStunts,
   supabaseGetArchivedStunts,
-  supabaseSubscribeToStuntLockChanges,
-  supabaseUpdateProfile
 } from '../services/supabaseApi';
 import {
   clearAccountData,
@@ -42,12 +41,18 @@ import {
   writeAccountPoses,
   writeAccountSessions
 } from '../services/accountStorage';
-import { applyAdminPoseImages, getBundledPoseImage, isLegacyGoogleUrl } from './utils/poseReferenceImages';
-import { notifyMasteryMilestone, notifySessionsWaitingToSync } from './utils/notifications';
+import { applyAdminPoseImages, applyAdminPoseVideos, getBundledPoseImage, isLegacyGoogleUrl } from './utils/poseReferenceImages';
+import {
+  notifyDailyPracticeReminder,
+  notifyMasteryMilestone,
+  notifySessionsWaitingToSync,
+  scheduleDailyPracticeReminder
+} from './utils/notifications';
 import { isSystemManager, displayRoleLabel } from './utils/profile';
 import type { PoseImageSource } from './utils/poseReferenceImages';
 import type { Stunt } from '../types/supabase';
 import { setAppLanguage } from './utils/localization';
+import { isPoseHidden } from './utils/access';
 
 /*
  * Split the two heavy screens out of the initial bundle.
@@ -250,6 +255,7 @@ export default function App() {
     const savedAuth = localStorage.getItem('optistance_is_authenticated');
     return savedAuth !== null ? savedAuth === 'true' : false;
   });
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
 
   // Cached practice history and pose mastery belong to an account, not to the
   // device, so they are read through accountStorage under the current account's
@@ -297,7 +303,9 @@ export default function App() {
       language: 'English (US)',
       darkMode: true,
       audioCues: true,
+      showFormCorrectionOverlay: true,
       notificationsEnabled: false,
+      reminderTime: '18:00',
       countdownTimer: 3,
       showSkeletonOverlay: true,
       autoCapture: false,
@@ -358,18 +366,61 @@ export default function App() {
     };
   }, [settings.notificationsEnabled, isAuthenticated, user.isGuest]);
 
-  // Admin-managed pose reference images.
+  // Daily scheduled practice reminder (Native + Web Browser).
+  useEffect(() => {
+    if (!settings.notificationsEnabled || !isAuthenticated) return;
+
+    const targetTime = settings.reminderTime || '18:00';
+    void scheduleDailyPracticeReminder(targetTime);
+
+    const checkDailyReminder = () => {
+      const now = new Date();
+      const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+        now.getDate()
+      ).padStart(2, '0')}`;
+
+      if (localStorage.getItem('optistance_last_daily_reminder_date') === todayKey) return;
+
+      const [hStr, mStr] = targetTime.split(':');
+      const targetHour = parseInt(hStr, 10) || 18;
+      const targetMin = parseInt(mStr, 10) || 0;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      const targetMinutes = targetHour * 60 + targetMin;
+
+      // Only trigger once local time reaches or passes the target time today
+      if (nowMinutes < targetMinutes) return;
+
+      // Skip if the athlete already recorded a session today
+      const practicedToday = sessions.some((s) => {
+        if (!s.timestamp) return false;
+        const d = new Date(s.timestamp);
+        if (Number.isNaN(d.getTime())) return false;
+        return (
+          d.getFullYear() === now.getFullYear() &&
+          d.getMonth() === now.getMonth() &&
+          d.getDate() === now.getDate()
+        );
+      });
+
+      if (practicedToday) {
+        localStorage.setItem('optistance_last_daily_reminder_date', todayKey);
+        return;
+      }
+
+      localStorage.setItem('optistance_last_daily_reminder_date', todayKey);
+      void notifyDailyPracticeReminder();
+    };
+
+    checkDailyReminder();
+    const timer = setInterval(checkDailyReminder, 30 * 1000);
+    return () => clearInterval(timer);
+  }, [settings.notificationsEnabled, settings.reminderTime, isAuthenticated, sessions]);
+
+  // Shared admin-managed pose content and reference images.
   //
-  // Refetched whenever the library is opened, not just once on mount, so an
-  // image the admin just uploaded is visible on returning to the library
-  // instead of only after a reload. Gated on the same conditions as session
-  // sync because the stunts table is authenticated-read-only: a guest gets
-  // nothing back and keeps the bundled images.
-  // Admin-managed pose reference images.
-  //
-  // Gated on the same conditions as session sync because the stunts table is
-  // authenticated-read-only: a guest gets nothing back and keeps the bundled
-  // images.
+  // Active stunts are readable by guests as well as signed-in athletes, so
+  // everyone sees the same syllabus. The guest RLS policy excludes archived
+  // rows, so only a signed-in account can refresh the shared archive cache.
   //
   // The cache below is the point of this rewrite. It used to re-run on every
   // single visit to the Library tab and issue a fresh `select *` of the whole
@@ -386,75 +437,6 @@ export default function App() {
   const poseImagesFetchedAtRef = useRef(0);
 
   useEffect(() => {
-    // Stunt updates event listeners: ensures live, instantaneous synchronization
-    // between Admin console and athlete Pose Library / AI Camera
-    const handleLockEvent = (e: Event) => {
-      const detail = (e as CustomEvent<{ stuntId: string; stuntName?: string; poseKey?: string | null; isLocked: boolean }>).detail;
-      if (!detail) return;
-      setServerStunts((prev) => {
-        const matchIndex = prev.findIndex(
-          (s) =>
-            s.id === detail.stuntId ||
-            (detail.poseKey && s.pose_key === detail.poseKey) ||
-            (detail.stuntName && s.name.toLowerCase() === detail.stuntName.toLowerCase())
-        );
-        let next: Stunt[];
-        if (matchIndex >= 0) {
-          next = prev.map((s, i) => (i === matchIndex ? { ...s, is_locked: detail.isLocked } : s));
-        } else {
-          next = [
-            ...prev,
-            {
-              id: detail.stuntId,
-              name: detail.stuntName || '',
-              pose_key: detail.poseKey,
-              is_locked: detail.isLocked,
-              category: 'stunt',
-              difficulty_tier: 'beginner',
-              is_archived: false,
-            } as Stunt,
-          ];
-        }
-        try {
-          localStorage.setItem('optistance_server_stunts_cache', JSON.stringify(next));
-        } catch {
-          // ignore storage quota errors
-        }
-        return next;
-      });
-
-      // Update poses state so bundled poses immediately reflect the lock
-      setPoses((prev) =>
-        prev.map((p) => {
-          const isMatch =
-            p.id === detail.stuntId ||
-            (detail.poseKey && p.id === detail.poseKey) ||
-            (detail.stuntName && p.name.toLowerCase() === detail.stuntName.toLowerCase());
-          return isMatch ? { ...p, isLocked: detail.isLocked } : p;
-        })
-      );
-
-      try {
-        const stored = localStorage.getItem('optistance_locked_stunts');
-        const set = new Set<string>(stored ? JSON.parse(stored) : []);
-        if (detail.isLocked) {
-          set.add(detail.stuntId);
-          if (detail.poseKey) set.add(detail.poseKey);
-          if (detail.stuntName) set.add(detail.stuntName.toLowerCase().trim());
-        } else {
-          set.delete(detail.stuntId);
-          if (detail.poseKey) set.delete(detail.poseKey);
-          if (detail.stuntName) set.delete(detail.stuntName.toLowerCase().trim());
-        }
-        localStorage.setItem('optistance_locked_stunts', JSON.stringify([...set]));
-      } catch {
-        // ignore
-      }
-
-      poseImagesLoadedRef.current = false;
-      poseImagesFetchedAtRef.current = 0;
-    };
-
     const handleArchiveEvent = (e: Event) => {
       const detail = (e as CustomEvent<{ stuntId: string; stuntName?: string; poseKey?: string | null }>).detail;
       if (!detail) return;
@@ -511,33 +493,14 @@ export default function App() {
       poseImagesFetchedAtRef.current = 0;
     };
 
-    window.addEventListener('optistance:stunt-lock', handleLockEvent);
     window.addEventListener('optistance:stunt-archive', handleArchiveEvent);
     window.addEventListener('optistance:stunt-restore', handleRestoreEvent);
 
-    const unsubscribeLockChanges =
-      isAuthenticated && isSupabaseConfigured
-        ? supabaseSubscribeToStuntLockChanges((stunt) => {
-            window.dispatchEvent(
-              new CustomEvent('optistance:stunt-lock', {
-                detail: {
-                  stuntId: stunt.id,
-                  stuntName: stunt.name,
-                  poseKey: stunt.pose_key,
-                  isLocked: stunt.is_locked,
-                },
-              })
-            );
-          })
-        : () => {};
-
     return () => {
-      window.removeEventListener('optistance:stunt-lock', handleLockEvent);
       window.removeEventListener('optistance:stunt-archive', handleArchiveEvent);
       window.removeEventListener('optistance:stunt-restore', handleRestoreEvent);
-      unsubscribeLockChanges();
     };
-  }, [isAuthenticated]);
+  }, []);
 
   useEffect(() => {
     // Only pull when the library is actually on screen, so no athlete pays for
@@ -554,18 +517,13 @@ export default function App() {
 
     void (async () => {
       try {
-        const [stunts, archived] = await Promise.all([
-          supabaseGetStunts(),
-          supabaseGetArchivedStunts().catch(() => []),
-        ]);
+        const stunts = await supabaseGetStunts();
         if (cancelled) return;
         poseImagesLoadedRef.current = true;
         poseImagesFetchedAtRef.current = Date.now();
         setServerStunts(stunts);
-        setServerArchivedStunts(archived);
         try {
           localStorage.setItem('optistance_server_stunts_cache', JSON.stringify(stunts));
-          localStorage.setItem('optistance_server_archived_stunts_cache', JSON.stringify(archived));
         } catch {
           // ignore storage quota errors
         }
@@ -573,15 +531,16 @@ export default function App() {
           stunts.map((s) => ({
             pose_key: s.pose_key,
             reference_image_url: s.reference_image_url,
+            reference_video_url: s.reference_video_url,
           }))
         );
       } catch (e) {
-        // Guests and offline athletes land here. The bundled images are already
-        // on screen, so there is nothing to recover and nothing to report.
+        // The bundled poses/images remain available while offline or when the
+        // shared syllabus cannot be fetched.
         if (!cancelled && !isBackgroundRevalidation) {
           setPoseImages([]);
         }
-        console.warn('Could not load admin pose images:', e);
+        console.warn('Could not load the shared pose syllabus and reference images:', e);
       }
     })();
 
@@ -589,6 +548,29 @@ export default function App() {
       cancelled = true;
     };
   }, [currentTab]);
+
+  useEffect(() => {
+    if (!isAuthenticated || user.isGuest || !user.id) return;
+
+    let cancelled = false;
+    void supabaseGetArchivedStunts()
+      .then((archived) => {
+        if (cancelled) return;
+        setServerArchivedStunts(archived);
+        try {
+          localStorage.setItem('optistance_server_archived_stunts_cache', JSON.stringify(archived));
+        } catch {
+          // ignore storage quota errors
+        }
+      })
+      .catch((error) => {
+        console.warn('Could not refresh the shared archived-pose cache:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user.id, user.isGuest]);
 
   // Live verification gating: watch is_verified on the profile row so locked
   // poses/camera unlock the moment an admin verifies the athlete (and lock
@@ -622,14 +604,19 @@ export default function App() {
   }, [isAuthenticated, user.isGuest, user.id]);
 
   // Track online presence for signed-in athletes so admin console displays
-  // real-time active status instead of a static "fake active" badge.
+  // real-time active status and newly registered accounts across devices.
   useEffect(() => {
     if (!isAuthenticated || user.isGuest || !user.id) return;
-    const cleanup = trackAthletePresence(user.id);
+    const cleanup = trackAthletePresence(user.id, {
+      fullName: user.name,
+      email: user.email,
+      role: user.role === 'SystemManager' ? 'SystemManager' : 'Athlete',
+      isVerified: user.isVerified === true,
+    });
     return () => {
       cleanup();
     };
-  }, [isAuthenticated, user.isGuest, user.id]);
+  }, [isAuthenticated, user.isGuest, user.id, user.name, user.email, user.role, user.isVerified]);
 
   // Apply theme to the document.
   //
@@ -807,26 +794,35 @@ export default function App() {
   // Auto-login listener when user returns from clicking Supabase confirmation email
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsPasswordRecovery(true);
+        setIsAuthenticated(false);
+        return;
+      }
+
       if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.user) {
+        setIsPasswordRecovery(false);
         try {
           const current = await getCurrentUser();
           if (current) {
-            setUser({
+            setUser((prev) => ({
+              ...prev,
               id: current.id,
-              name: current.fullName,
-              email: current.email,
+              name: current.fullName || prev.name,
+              email: current.email || prev.email,
               role: current.role === 'SystemManager' ? 'SystemManager' : 'Cheer Athlete',
-              avatarUrl: '',
-              totalSessions: 0,
-              totalPracticeMinutes: 0,
-              masteredCount: 0,
               isGuest: false,
               emailVerified: current.emailVerified !== false,
               isVerified: current.isVerified === true,
+              verificationStatus: current.verificationStatus ?? prev.verificationStatus,
+            }));
+            setIsAuthenticated((wasAuthed) => {
+              if (!wasAuthed) {
+                setCurrentTab('library');
+                setSelectedPose(null);
+              }
+              return true;
             });
-            setIsAuthenticated(true);
-            setCurrentTab('library');
-            setSelectedPose(null);
           }
         } catch (err) {
           console.warn('Auto-login on auth state change failed:', err);
@@ -835,6 +831,58 @@ export default function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Cross-browser / cross-device email confirmation detector:
+  // When an athlete clicks the confirmation link in their email app, it often
+  // opens in the email app's built-in browser (or redirects to `localhost` on a
+  // phone after Supabase has already marked `email_confirmed_at` on the server).
+  // When the athlete returns to this browser tab, automatically complete sign-in
+  // and flip `emailVerified` to true so they don't get stuck on the banner.
+  useEffect(() => {
+    if (!isAuthenticated || user.isGuest || user.emailVerified !== false || !user.email) {
+      return;
+    }
+
+    let cancelled = false;
+    const checkNow = async () => {
+      if (cancelled) return;
+      const res = await checkAndCompleteEmailConfirmation(user.email);
+      if (cancelled || !res.confirmed || !res.user) return;
+      const u = res.user;
+      setUser((prev) => ({
+        ...prev,
+        id: u.id || prev.id,
+        name: u.fullName || prev.name,
+        email: u.email || prev.email,
+        role: u.role === 'SystemManager' ? 'SystemManager' : 'Cheer Athlete',
+        isGuest: false,
+        emailVerified: true,
+        isVerified: u.isVerified === true || prev.isVerified === true,
+        verificationStatus: u.verificationStatus ?? prev.verificationStatus,
+      }));
+    };
+
+    const handleReturnToTab = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void checkNow();
+      }
+    };
+
+    window.addEventListener('focus', handleReturnToTab);
+    document.addEventListener('visibilitychange', handleReturnToTab);
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        void checkNow();
+      }
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', handleReturnToTab);
+      document.removeEventListener('visibilitychange', handleReturnToTab);
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, user.isGuest, user.emailVerified, user.email]);
 
   // Handle Authentication flow
   const handleAuthSuccess = (authenticatedUser: UserProfile) => {
@@ -903,13 +951,6 @@ export default function App() {
     setPoses(bundledPoses());
   };
 
-  const handleEditProfile = (edits: EditableProfileFields) => {
-    setUser((prev) => ({ ...prev, ...edits }));
-    if (!user.isGuest && user.id) {
-      void supabaseUpdateProfile(edits);
-    }
-  };
-
   // Handle saving a practice session
   const handleSaveSession = (newSession: PracticeSession) => {
     const canSync = !user.isGuest && user.emailVerified !== false;
@@ -921,7 +962,7 @@ export default function App() {
     // Update the target pose's mastery score first, then derive the mastered count
     // from the freshly updated list (avoids reading stale pose data from this render).
     const nextPoses = poses.map((p) =>
-      p.id === newSession.poseId
+      !newSession.isDuplicateUpload && p.id === newSession.poseId
         ? { ...p, masteryPercentage: Math.max(p.masteryPercentage, newSession.accuracyScore) }
         : p
     );
@@ -934,6 +975,7 @@ export default function App() {
     const previousMastery = poses.find((p) => p.id === newSession.poseId)?.masteryPercentage ?? 0;
     if (
       settings.notificationsEnabled &&
+      !newSession.isDuplicateUpload &&
       newSession.accuracyScore >= MASTERY_THRESHOLD &&
       previousMastery < MASTERY_THRESHOLD
     ) {
@@ -945,7 +987,7 @@ export default function App() {
     // Derive the totals from the session list rather than incrementing a counter
     // alongside it. Two counters drifting apart is what made the profile claim
     // zero sessions while the history screen listed a full account.
-    const nextSessions = [newSession, ...sessions];
+    const nextSessions = [newSession, ...sessions.filter((s) => s.id !== newSession.id)];
     setSessions(nextSessions);
     setUser((prevUser) => ({
       ...prevUser,
@@ -954,7 +996,7 @@ export default function App() {
     }));
 
     // If viewing this pose detail, update that too
-    if (selectedPose && selectedPose.id === newSession.poseId) {
+    if (!newSession.isDuplicateUpload && selectedPose && selectedPose.id === newSession.poseId) {
       setSelectedPose((prev) =>
         prev
           ? {
@@ -967,11 +1009,12 @@ export default function App() {
   };
 
   const handleStartPractice = (pose: Pose) => {
+    if (isPoseHidden(pose)) return;
     setActiveCameraPose(pose);
   };
 
   const handleStartPracticeWithPoseId = (poseId: string) => {
-    const found = poses.find((p) => p.id === poseId);
+    const found = displayPoses.find((p) => p.id === poseId);
     // Don't guess. This used to fall back to `poses[0]`, so the "Start First
     // Practice" empty state dropped the athlete into the camera scanning a pose
     // they had never chosen. Callers that mean "let me browse" now say so.
@@ -1003,27 +1046,10 @@ export default function App() {
   // that same list with admin-uploaded pictures swapped in and any newly added
   // stunts from the syllabus seamlessly included so all admin poses appear in the UI.
   const displayPoses = useMemo(() => {
-    const overlaid = applyAdminPoseImages(poses, poseImages);
-
-    // Read locked set from localStorage as a reliable sync bridge
-    const lockedFromStorage = (() => {
-      try {
-        const raw = localStorage.getItem('optistance_locked_stunts');
-        return new Set<string>(raw ? JSON.parse(raw) : []);
-      } catch {
-        return new Set<string>();
-      }
-    })();
-
-    const lockedKeyMap = new Map<string, boolean>();
-    const lockedNameMap = new Map<string, boolean>();
-    for (const s of serverStunts) {
-      if (s.is_locked !== undefined) {
-        if (s.pose_key) lockedKeyMap.set(s.pose_key, Boolean(s.is_locked));
-        lockedKeyMap.set(s.id, Boolean(s.is_locked));
-        lockedNameMap.set(s.name.toLowerCase().trim(), Boolean(s.is_locked));
-      }
-    }
+    const overlaid = applyAdminPoseVideos(
+      applyAdminPoseImages(poses, poseImages),
+      poseImages
+    );
 
     const archivedKeys = new Set(serverArchivedStunts.map((s) => s.pose_key).filter(Boolean));
     serverArchivedStunts.forEach((s) => archivedKeys.add(s.id));
@@ -1034,28 +1060,12 @@ export default function App() {
       (p) => !archivedKeys.has(p.id) && !archivedNames.has(p.name.toLowerCase().trim())
     );
 
-    const lockedOverlaid = activeOverlaid.map((p) => {
-      const isLockedFromServer = lockedKeyMap.has(p.id)
-        ? lockedKeyMap.get(p.id)
-        : lockedNameMap.get(p.name.toLowerCase().trim());
-
-      const isLockedFromLocal =
-        lockedFromStorage.has(p.id) ||
-        lockedFromStorage.has(p.name.toLowerCase().trim());
-
-      const isLocked = isLockedFromServer !== undefined
-        ? isLockedFromServer
-        : isLockedFromLocal || Boolean(p.isLocked);
-
-      return { ...p, isLocked };
-    });
-
     if (serverStunts.length === 0 && serverArchivedStunts.length === 0) {
-      return lockedOverlaid;
+      return activeOverlaid.filter((pose) => !isPoseHidden(pose));
     }
 
-    const existingKeys = new Set(lockedOverlaid.map((p) => p.id));
-    const existingNames = new Set(lockedOverlaid.map((p) => p.name.toLowerCase().trim()));
+    const existingKeys = new Set(activeOverlaid.map((p) => p.id));
+    const existingNames = new Set(activeOverlaid.map((p) => p.name.toLowerCase().trim()));
 
     const extraPoses: Pose[] = [];
     for (const s of serverStunts) {
@@ -1082,12 +1092,6 @@ export default function App() {
         ? s.reference_image_url
         : fallbackImg;
 
-      const extraLocked =
-        Boolean(s.is_locked) ||
-        lockedFromStorage.has(s.id) ||
-        (s.pose_key ? lockedFromStorage.has(s.pose_key) : false) ||
-        lockedFromStorage.has(s.name.toLowerCase().trim());
-
       extraPoses.push({
         id: s.pose_key || s.id,
         name: s.name,
@@ -1097,27 +1101,21 @@ export default function App() {
         practiceTips: s.coaching_cues ? [{ text: s.coaching_cues, type: 'check' }] : [],
         masteryPercentage: 0,
         imageUrl: effectiveImg,
+        videoUrl: s.reference_video_url,
         points: s.target_points || 150,
         idealAngles: {},
         commonMistakes: s.common_mistakes ? [s.common_mistakes] : [],
         icuStandardGuideline: 'ICU Competition Standard Stunt Position.',
         defaultSkeleton: { joints: [], lines: [] },
         sampleCorrectionMessage: s.coaching_cues || 'Maintain tight core and steady balance.',
-        isLocked: extraLocked,
       });
     }
 
-    return extraPoses.length > 0 ? [...lockedOverlaid, ...extraPoses] : lockedOverlaid;
+    const availablePoses = extraPoses.length > 0
+      ? [...activeOverlaid, ...extraPoses]
+      : activeOverlaid;
+    return availablePoses.filter((pose) => !isPoseHidden(pose));
   }, [poses, poseImages, serverStunts, serverArchivedStunts]);
-
-  // Keep selected pose lock status synchronized if an admin updates it
-  useEffect(() => {
-    if (!selectedPose) return;
-    const match = displayPoses.find((p) => p.id === selectedPose.id);
-    if (match && match.isLocked !== selectedPose.isLocked) {
-      setSelectedPose((prev) => (prev ? { ...prev, isLocked: match.isLocked } : null));
-    }
-  }, [displayPoses, selectedPose]);
 
   // 1. Initial Loading Screen (Runs first upon app launch)
   if (isLoading) {
@@ -1125,11 +1123,13 @@ export default function App() {
   }
 
   // 2. Authentication Screen (Log In & Sign Up)
-  if (!isAuthenticated) {
+  if (!isAuthenticated || isPasswordRecovery) {
     return (
       <AuthScreen
         onAuthSuccess={handleAuthSuccess}
         onContinueAsGuest={handleContinueAsGuest}
+        isPasswordRecovery={isPasswordRecovery}
+        onPasswordRecoveryComplete={() => setIsPasswordRecovery(false)}
       />
     );
   }
@@ -1177,11 +1177,18 @@ export default function App() {
       {(currentTab === 'camera' || activeCameraPose) && (
         <Suspense fallback={<CameraLoadingFallback />}>
           <AICameraScreen
-            initialPose={activeCameraPose ?? null}
+            initialPose={
+              activeCameraPose && !isPoseHidden(activeCameraPose)
+                ? activeCameraPose
+                : null
+            }
             allPoses={displayPoses}
             isVerified={user.isVerified === true || isSystemManager(user)}
-            isAdmin={isSystemManager(user)}
+            isGuest={user.isGuest === true}
+            sessions={sessions}
             audioCuesEnabled={settings.audioCues}
+            showFormCorrectionOverlay={settings.showFormCorrectionOverlay}
+            autoCaptureEnabled={settings.autoCapture}
             onClose={() => {
               setActiveCameraPose(null);
               setCurrentTab('library');
@@ -1231,11 +1238,10 @@ export default function App() {
         )}
 
       {/* Admin Panel or Main App */}
-      {isAdminScreen ? null : selectedPose ? (
+      {isAdminScreen ? null : selectedPose && !isPoseHidden(selectedPose) ? (
         <div className="relative z-10 max-w-7xl mx-auto min-h-screen pb-24">
           <PoseDetailScreen
             pose={selectedPose}
-            isAdmin={isSystemManager(user)}
             onBack={() => setSelectedPose(null)}
             onStartPractice={handleStartPractice}
           />
@@ -1248,7 +1254,6 @@ export default function App() {
               settings={settings}
               onUpdateSettings={(newVals) => setSettings((prev) => ({ ...prev, ...newVals }))}
               user={user}
-              onEditProfile={handleEditProfile}
               onLogout={handleLogout}
               onBack={handleBackToDrawer}
             />
@@ -1276,7 +1281,6 @@ export default function App() {
             onOpenDrawer={() => setDrawerOpen(true)}
             onOpenProfile={() => setCurrentTab('profile')}
             user={user}
-            totalMastered={displayPoses.filter((p) => p.masteryPercentage >= MASTERY_THRESHOLD).length}
             isDrawerOpen={drawerOpen}
           />
 
@@ -1285,7 +1289,7 @@ export default function App() {
               <PoseLibraryScreen
                 poses={displayPoses}
                 isVerified={user.isVerified === true || isSystemManager(user)}
-                isAdmin={isSystemManager(user)}
+                isGuest={user.isGuest === true}
                 onSelectPose={(pose) => setSelectedPose(pose)}
                 onStartPractice={handleStartPractice}
               />
@@ -1305,7 +1309,6 @@ export default function App() {
                 poses={displayPoses}
                 sessions={sessions}
                 onUpdateUser={(newVals) => setUser((prev) => ({ ...prev, ...newVals }))}
-                onEditProfile={handleEditProfile}
                 onStartPracticeWithPoseId={handleStartPracticeWithPoseId}
               />
             )}

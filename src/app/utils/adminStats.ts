@@ -6,6 +6,21 @@ export interface AccountLike {
   isVerified: boolean;
 }
 
+export interface PresenceAccount extends AccountLike {
+  role: 'Athlete' | 'SystemManager';
+}
+
+/** Count active accounts of any role present on the live online channel. */
+export const countOnlineAccounts = (
+  accounts: readonly PresenceAccount[],
+  onlineUserIds: ReadonlySet<string>
+): number =>
+  accounts.filter(
+    (account) =>
+      account.isActive &&
+      onlineUserIds.has(account.id)
+  ).length;
+
 export interface RosterSummary {
   /** Accounts in the `users` table, active and deactivated. */
   totalAccounts: number;
@@ -272,6 +287,7 @@ export interface RankableAccount {
   id: string;
   name: string;
   isActive: boolean;
+  lastSeenAt?: string | null;
 }
 
 export interface AthleteRank {
@@ -280,6 +296,7 @@ export interface AthleteRank {
   sessions: number;
   avgAccuracy: number | null;
   lastSessionAt: string | null;
+  lastSeenAt: string | null;
   isActive: boolean;
 }
 
@@ -315,6 +332,7 @@ export const rankAthletes = (
         avgAccuracy:
           entry && entry.scored > 0 ? Math.round(entry.sum / entry.scored) : null,
         lastSessionAt: entry?.last || null,
+        lastSeenAt: account.lastSeenAt ?? null,
         isActive: account.isActive,
       };
     })

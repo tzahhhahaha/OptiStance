@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   is_active BOOLEAN DEFAULT true,
-  is_verified BOOLEAN NOT NULL DEFAULT false
+  is_verified BOOLEAN NOT NULL DEFAULT false,
+  last_seen_at TIMESTAMPTZ
 );
 
 -- Athlete profiles (extended user info)
@@ -44,7 +45,6 @@ CREATE TABLE IF NOT EXISTS stunts (
   target_points INT DEFAULT 100,
   mastery_threshold FLOAT DEFAULT 80.0,
   is_archived BOOLEAN DEFAULT false,
-  is_locked BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -159,6 +159,23 @@ ALTER TABLE media_uploads ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile" ON users
   FOR SELECT USING (auth.uid()::text = id::text);
 
+-- Update last-seen without granting athletes general profile update access.
+CREATE OR REPLACE FUNCTION public.touch_last_seen()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  UPDATE public.users
+  SET last_seen_at = now()
+  WHERE id = auth.uid();
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.touch_last_seen() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.touch_last_seen() TO authenticated;
+
 -- There is deliberately no "view all users" policy for ordinary athletes. An
 -- earlier version of this file had one here, for "leaderboards, coach views,
 -- etc." Postgres ORs permissive policies together, so that single policy let any
@@ -178,6 +195,12 @@ CREATE POLICY "Admins can view all users" ON users
 -- Stunts library visible to all authenticated users
 CREATE POLICY "Authenticated users can view stunts" ON stunts
   FOR SELECT TO authenticated USING (true);
+
+-- Guests can browse the active syllabus, but never archived poses or write to it.
+REVOKE ALL ON TABLE public.stunts FROM anon;
+GRANT SELECT ON TABLE public.stunts TO anon;
+CREATE POLICY "Guests can view active stunts" ON stunts
+  FOR SELECT TO anon USING (is_archived = false);
 
 -- Joint angle standards visible to all authenticated users
 CREATE POLICY "Authenticated users can view joint angle standards" ON joint_angle_standards

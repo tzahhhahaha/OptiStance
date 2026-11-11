@@ -62,6 +62,41 @@
   }
 }
 
+/* Mobile PWA Notch & Home Bar Safe-Area Utilities */
+.safe-header {
+  padding-top: max(env(safe-area-inset-top, 0px), 16px) !important;
+}
+
+.safe-top-camera {
+  padding-top: max(calc(env(safe-area-inset-top, 0px) + 12px), 20px) !important;
+}
+
+.camera-tool-dock {
+  top: max(calc(env(safe-area-inset-top, 0px) + 72px), 80px) !important;
+}
+
+.camera-indicator-top {
+  top: max(calc(env(safe-area-inset-top, 0px) + 68px), 76px) !important;
+}
+
+.safe-bottom-shutter {
+  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 16px), 24px) !important;
+}
+
+.safe-bottom-nav {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 14px) !important;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.safe-top-drawer {
+  padding-top: max(calc(env(safe-area-inset-top, 0px) + 16px), 24px) !important;
+}
+
+.safe-bottom-drawer {
+  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 16px), 24px) !important;
+}
+
 /* Custom sleek scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

@@ -6,23 +6,14 @@ import { translate as t } from '../utils/localization';
 interface PoseCardProps {
   pose: Pose;
   isLocked: boolean;
-  isAdmin?: boolean;
   onSelect: (pose: Pose) => void;
   onStartPractice: (pose: Pose) => void;
   onLockedClick: (pose: Pose) => void;
 }
 
-/**
- * A single pose card in the gallery. When `isLocked` (unverified athlete +
- * non-beginner pose), a semi-transparent overlay dims the card and shows a
- * lock + "Verify to Unlock". The overlay is `pointer-events-none` — clicks
- * fall through to the card, which routes them to `onLockedClick` so the
- * gallery can explain what verification unlocks.
- */
 export const PoseCard: React.FC<PoseCardProps> = ({
   pose,
   isLocked,
-  isAdmin = false,
   onSelect,
   onStartPractice,
   onLockedClick
@@ -65,19 +56,10 @@ export const PoseCard: React.FC<PoseCardProps> = ({
           {pose.difficulty}
         </div>
 
-        {/* Unavailable Badge for regular athletes */}
-        {pose.isLocked && !isAdmin && (
+        {isLocked && (
           <div className="absolute top-3 left-3 z-10 bg-amber-500 text-black border border-amber-300 font-black px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider flex items-center gap-1 shadow-lg">
             <Lock className="w-3 h-3 stroke-[2.5]" />
-            <span>{t('Currently Unavailable')}</span>
-          </div>
-        )}
-
-        {/* Status Indicator for Admin: Informs admin that this pose is locked for athletes, while admin retains full practice access */}
-        {pose.isLocked && isAdmin && (
-          <div className="absolute top-3 left-3 z-10 bg-amber-500/25 border border-amber-400/40 text-amber-300 font-extrabold px-2.5 py-1 rounded-full text-[9px] uppercase tracking-wider flex items-center gap-1 backdrop-blur-md shadow-md">
-            <Lock className="w-2.5 h-2.5" />
-            <span>Locked for athletes</span>
+            <span>{t('Verify to Unlock')}</span>
           </div>
         )}
 
@@ -154,7 +136,7 @@ export const PoseCard: React.FC<PoseCardProps> = ({
           {isLocked ? (
             <span className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold text-xs flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5" />
-              <span>{pose.isLocked ? t('Currently Unavailable') : t('Locked')}</span>
+              <span>{t('Locked')}</span>
             </span>
           ) : (
             <button
@@ -171,31 +153,17 @@ export const PoseCard: React.FC<PoseCardProps> = ({
         </div>
       </div>
 
-      {/* Verification / Coach lock overlay — dims the whole card. pointer-events-none so
-          clicks pass through to the card handler above. */}
       {isLocked && (
         <div className="absolute inset-0 z-20 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center gap-2 pointer-events-none px-4 text-center">
           <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shadow-lg">
             <Lock className="w-6 h-6 text-amber-300" />
           </div>
-          {pose.isLocked ? (
-            <>
-              <div className="px-3 py-0.5 rounded-full bg-amber-500/25 border border-amber-500/50 text-amber-300 text-[10px] font-extrabold uppercase tracking-widest shadow-sm">
-                {t('Unavailable')}
-              </div>
-              <span className="text-xs font-black uppercase tracking-[0.15em] text-amber-300">
-                {t('Currently Unavailable')}
-              </span>
-              <span className="text-[10px] text-zinc-300 font-medium">{t('Locked by coach / admin')}</span>
-            </>
-          ) : (
-            <>
-              <span className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-white">
-                {t('Verify to Unlock')}
-              </span>
-              <span className="text-[10px] text-zinc-300/80 font-medium">{t('Intermediate & Advanced poses')}</span>
-            </>
-          )}
+          <span className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-white">
+            {t('Verify to Unlock')}
+          </span>
+          <span className="text-[10px] text-zinc-300/80 font-medium">
+            {t('Intermediate & Advanced poses')}
+          </span>
         </div>
       )}
     </div>

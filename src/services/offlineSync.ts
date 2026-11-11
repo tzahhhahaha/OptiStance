@@ -164,19 +164,24 @@ const uploadPracticeSession = async (
     .from('practice_sessions')
     .select('id')
     .eq('user_id', userId)
-    .eq('session_notes', `${session.feedbackSummary} ${localMarker}`)
+    .like('session_notes', `%${localMarker}%`)
     .maybeSingle();
 
   if (existingError) throw existingError;
   if (existingSession) return; // already uploaded – idempotent
 
+  const metadataMarkers = [
+    ...(session.source === 'upload' ? ['[source:uploaded-image]'] : []),
+    ...(session.imageFingerprint ? [`[image-fingerprint:${session.imageFingerprint}]`] : []),
+    ...(session.isDuplicateUpload ? ['[duplicate-upload]'] : []),
+  ].join(' ');
   const sessionRecord = {
     user_id: userId,
     stunt_id: stuntId,
     session_date: session.timestamp,
     duration_minutes: Math.max(1, Math.round(session.durationSeconds / 60)),
     overall_accuracy: session.accuracyScore,
-    session_notes: `${session.feedbackSummary} ${localMarker}`,
+    session_notes: `${session.feedbackSummary}${metadataMarkers ? ` ${metadataMarkers}` : ''} ${localMarker}`,
     completed: true,
     ...(session.icuScore == null ? {} : { icu_compliance_grade: session.icuScore }),
   };

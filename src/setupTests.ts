@@ -14,8 +14,10 @@ console.error = (...args: unknown[]) => {
 
 // 2. Comprehensive canvas 2D mock for JSDOM
 if (typeof HTMLCanvasElement !== 'undefined') {
-  HTMLCanvasElement.prototype.getContext = function (contextType: string) {
-    if (contextType === '2d') {
+  Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+    configurable: true,
+    value(this: HTMLCanvasElement, contextType: string) {
+      if (contextType !== '2d') return null;
       return {
         canvas: this,
         fillRect: () => {},
@@ -48,7 +50,6 @@ if (typeof HTMLCanvasElement !== 'undefined') {
         rotate: () => {},
         translate: () => {},
       } as unknown as CanvasRenderingContext2D;
-    }
-    return null;
-  };
+    },
+  });
 }

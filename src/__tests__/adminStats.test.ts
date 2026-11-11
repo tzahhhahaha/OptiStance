@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   activeUserCount,
   bucketSessionsByDay,
+  countOnlineAccounts,
   isEmptySeries,
   localDayKey,
   meanComplianceGrade,
@@ -116,6 +117,24 @@ describe('summariseRoster', () => {
   it('reports zero, not NaN, when nobody is active', () => {
     const allDeactivated = accounts.map((a) => ({ ...a, isActive: false }));
     expect(summariseRoster(allDeactivated, [session('a', 26)]).avgSessionsPerAthlete).toBe(0);
+  });
+});
+
+describe('countOnlineAccounts', () => {
+  it('counts active athlete and admin accounts reported by live presence', () => {
+    const accounts = [
+      { id: 'online-athlete', isActive: true, isVerified: true, role: 'Athlete' as const },
+      { id: 'offline-athlete', isActive: true, isVerified: false, role: 'Athlete' as const },
+      { id: 'inactive-athlete', isActive: false, isVerified: true, role: 'Athlete' as const },
+      { id: 'online-admin', isActive: true, isVerified: true, role: 'SystemManager' as const },
+    ];
+
+    expect(
+      countOnlineAccounts(
+        accounts,
+        new Set(['online-athlete', 'inactive-athlete', 'online-admin'])
+      )
+    ).toBe(2);
   });
 });
 
@@ -271,6 +290,13 @@ describe('rankAthletes', () => {
   it('records the most recent session date', () => {
     const ranked = rankAthletes([session('a', 10), session('a', 27)], accounts, 1);
     expect(ranked[0].lastSessionAt).toBe(iso(27));
+  });
+
+  it('carries the account last-seen timestamp independently from practice activity', () => {
+    const lastSeenAt = '2026-10-27T01:00:00Z';
+    const ranked = rankAthletes([], [{ ...accounts[0], lastSeenAt }], 1);
+    expect(ranked[0].lastSeenAt).toBe(lastSeenAt);
+    expect(ranked[0].lastSessionAt).toBeNull();
   });
 
   it('honours the limit', () => {

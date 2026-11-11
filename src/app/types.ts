@@ -44,14 +44,15 @@ export interface Pose {
     lines: SkeletonLine[];
   };
   sampleCorrectionMessage: string;
-  /** Whether the coach/admin has temporarily locked this pose from athlete practice */
-  isLocked?: boolean;
 }
 
 export interface PracticeSession {
   id: string;
   poseId: string;
   poseName: string;
+  source?: 'upload';
+  imageFingerprint?: string;
+  isDuplicateUpload?: boolean;
   timestamp: string;
   accuracyScore: number;
   durationSeconds: number;
@@ -69,6 +70,7 @@ export interface AppSettings {
   language: string;
   darkMode: boolean;
   audioCues: boolean;
+  showFormCorrectionOverlay: boolean;
   /**
    * Whether the athlete opted in to local reminders (pending-sync nudges and
    * mastery milestones). Distinct from `audioCues`, which is the spoken
@@ -76,6 +78,7 @@ export interface AppSettings {
    * `getNotificationPermission()` -- this flag is our half of the answer.
    */
   notificationsEnabled: boolean;
+  reminderTime?: string;
   countdownTimer: number; // 0, 3, 5
   showSkeletonOverlay: boolean;
   autoCapture: boolean;
@@ -140,4 +143,3 @@ export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'reject
  * writing `role`, `email`, `isVerified` or `id` — those are server-owned. Using
  * this instead of `Partial<UserProfile>` is what keeps the admin gate honest.
  */
-export type EditableProfileFields = Pick<UserProfile, 'name' | 'specialty'>;

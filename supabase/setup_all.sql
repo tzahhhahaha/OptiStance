@@ -227,6 +227,12 @@ CREATE POLICY "Admins can view all users" ON users
 CREATE POLICY "Authenticated users can view stunts" ON stunts
   FOR SELECT TO authenticated USING (true);
 
+-- Guests can browse the active syllabus, but never archived poses or write to it.
+REVOKE ALL ON TABLE public.stunts FROM anon;
+GRANT SELECT ON TABLE public.stunts TO anon;
+CREATE POLICY "Guests can view active stunts" ON stunts
+  FOR SELECT TO anon USING (is_archived = false);
+
 -- Joint angle standards policies
 CREATE POLICY "Authenticated users can view joint angle standards" ON joint_angle_standards
   FOR SELECT TO authenticated USING (true);

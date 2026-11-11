@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAdminPoseImages, getBundledPoseImage } from '../app/utils/poseReferenceImages';
+import { applyAdminPoseImages, applyAdminPoseVideos, getBundledPoseImage } from '../app/utils/poseReferenceImages';
 import type { Pose } from '../app/types';
 
 const pose = (id: string, imageUrl: string): Pose =>
@@ -98,6 +98,35 @@ describe('applyAdminPoseImages', () => {
     // Should not overwrite bundled-1 with the dead Google link
     expect(result).toBe(library);
     expect(result[0].imageUrl).toBe('bundled-1');
+  });
+});
+
+describe('applyAdminPoseVideos', () => {
+  const library = [pose('half-t', 'bundled-1'), pose('t-motion', 'bundled-2')];
+
+  it('adds an admin-uploaded video to the matching bundled pose', () => {
+    const result = applyAdminPoseVideos(library, [
+      { pose_key: 'half-t', reference_video_url: 'https://cdn.test/half-t.mp4' },
+    ]);
+
+    expect(result[0].videoUrl).toBe('https://cdn.test/half-t.mp4');
+  });
+
+  it('preserves bundled videos when no admin video is configured', () => {
+    const bundledPose = { ...library[0], videoUrl: '/poses/videos/half-t.mp4' };
+    const posesWithBundledVideo = [bundledPose];
+    const result = applyAdminPoseVideos(posesWithBundledVideo, [
+      { pose_key: 'half-t', reference_video_url: ' ' },
+    ]);
+
+    expect(result).toBe(posesWithBundledVideo);
+    expect(result[0].videoUrl).toBe('/poses/videos/half-t.mp4');
+  });
+
+  it('returns the original poses when no matching video exists', () => {
+    expect(applyAdminPoseVideos(library, [
+      { pose_key: null, reference_video_url: 'https://cdn.test/video.mp4' },
+    ])).toBe(library);
   });
 });
 

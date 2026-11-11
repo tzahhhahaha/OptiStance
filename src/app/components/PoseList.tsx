@@ -6,20 +6,14 @@ import { PoseCard } from './PoseCard';
 interface PoseListProps {
   poses: Pose[];
   isVerified: boolean;
-  isAdmin?: boolean;
   onSelectPose: (pose: Pose) => void;
   onStartPractice: (pose: Pose) => void;
   onLockedPoseClick: (pose: Pose) => void;
 }
 
-/**
- * Responsive grid of PoseCards, applying the verification gating rule to each
- * card (unverified athletes get locked, non-beginner poses; admins are exempt).
- */
 export const PoseList: React.FC<PoseListProps> = ({
   poses,
   isVerified,
-  isAdmin = false,
   onSelectPose,
   onStartPractice,
   onLockedPoseClick
@@ -29,8 +23,7 @@ export const PoseList: React.FC<PoseListProps> = ({
       <PoseCard
         key={pose.id}
         pose={pose}
-        isLocked={isPoseLocked(pose, isVerified, isAdmin)}
-        isAdmin={isAdmin}
+        isLocked={isPoseLocked(pose, isVerified)}
         onSelect={onSelectPose}
         onStartPractice={onStartPractice}
         onLockedClick={onLockedPoseClick}

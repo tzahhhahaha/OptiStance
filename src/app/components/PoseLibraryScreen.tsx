@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { Search, Sparkles, Target, Lock, X } from 'lucide-react';
 import { Pose, PoseCategory, PoseDifficulty, MASTERY_THRESHOLD } from '../types';
 import { PoseList } from './PoseList';
+import { visiblePosesFor } from '../utils/access';
 import { translate as t } from '../utils/localization';
 
 interface PoseLibraryScreenProps {
   poses: Pose[];
   isVerified: boolean;
-  isAdmin?: boolean;
+  isGuest: boolean;
   onSelectPose: (pose: Pose) => void;
   onStartPractice: (pose: Pose) => void;
 }
@@ -15,22 +16,21 @@ interface PoseLibraryScreenProps {
 export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
   poses,
   isVerified,
-  isAdmin = false,
+  isGuest,
   onSelectPose,
   onStartPractice
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>('All');
-  // Pose the user tapped that is gated behind verification.
   const [lockedPose, setLockedPose] = useState<Pose | null>(null);
-
-  const categories: (string | PoseCategory)[] = ['All', 'Pom Motion', 'Stunts', 'Jumps'];
+  const categories: (string | PoseCategory)[] = ['All', 'Pom Motion', 'Stunts'];
   const difficulties: (string | PoseDifficulty)[] = ['All', 'Beginner', 'Intermediate', 'Advanced'];
 
   const normalize = (text: string) => text.toLowerCase().replace(/[-_\s]+/g, ' ');
 
-  const filteredPoses = poses.filter((pose) => {
+  const visiblePoses = visiblePosesFor(poses, isVerified, isGuest);
+  const filteredPoses = visiblePoses.filter((pose) => {
     const trimmed = searchQuery.trim().toLowerCase();
     const normalizedQ = normalize(trimmed);
 
@@ -42,7 +42,11 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
       pose.category.toLowerCase().includes(trimmed) ||
       pose.difficulty.toLowerCase().includes(trimmed);
 
-    const matchesCategory = selectedCategory === 'All' || pose.category === selectedCategory;
+    const matchesCategory = selectedCategory === 'All' || (
+      selectedCategory === 'Stunts'
+        ? pose.category !== 'Pom Motion'
+        : pose.category === selectedCategory
+    );
     const matchesDifficulty = selectedDifficulty === 'All' || pose.difficulty === selectedDifficulty;
     return matchesSearch && matchesCategory && matchesDifficulty;
   });
@@ -172,14 +176,12 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
         <PoseList
           poses={filteredPoses}
           isVerified={isVerified}
-          isAdmin={isAdmin}
           onSelectPose={onSelectPose}
           onStartPractice={onStartPractice}
-          onLockedPoseClick={(pose) => setLockedPose(pose)}
+          onLockedPoseClick={setLockedPose}
         />
       )}
 
-      {/* Verification required modal (gated pose tapped while unverified) */}
       {lockedPose && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
@@ -199,43 +201,21 @@ export const PoseLibraryScreen: React.FC<PoseLibraryScreenProps> = ({
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-300 flex items-center justify-center mb-4">
               <Lock className="w-6 h-6" />
             </div>
-            {lockedPose.isLocked ? (
-              <>
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-extrabold uppercase tracking-widest mb-3">
-                  <Lock className="w-3 h-3" />
-                  <span>{t('Currently Unavailable')}</span>
-                </div>
-                <h3 className="text-lg font-black text-white mb-2">{t('Pose Currently Unavailable')}</h3>
-                <p className="text-xs text-zinc-300 leading-relaxed mb-5">
-                  <span className="font-semibold text-white">{lockedPose.name}</span> has been temporarily locked by your admin. Please check back later or choose another active pose.
-                </p>
-                <button
-                  onClick={() => setLockedPose(null)}
-                  className="w-full py-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(245,158,11,0.4)] active:scale-[0.98] transition-all"
-                >
-                  {t('Got it')}
-                </button>
-              </>
-            ) : (
-              <>
-                <h3 className="text-lg font-black text-white mb-2">{t('Verification Required')}</h3>
-                <p className="text-xs text-zinc-400 leading-relaxed mb-5">
-                  <span className="font-semibold text-zinc-200">{lockedPose.name}</span> is an{' '}
-                  {lockedPose.difficulty.toLowerCase()} pose. Verify your athlete account to unlock Intermediate and
-                  Advanced poses in the gallery and AI camera.
-                </p>
-                <button
-                  onClick={() => setLockedPose(null)}
-                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
-                >
-                  {t('Got it')}
-                </button>
-              </>
-            )}
+            <h3 className="text-lg font-black text-white mb-2">{t('Verification Required')}</h3>
+            <p className="text-xs text-zinc-400 leading-relaxed mb-5">
+              <span className="font-semibold text-zinc-200">{lockedPose.name}</span> is an{' '}
+              {lockedPose.difficulty.toLowerCase()} pose. Verify your athlete account to unlock
+              Intermediate and Advanced poses in the gallery and AI camera.
+            </p>
+            <button
+              onClick={() => setLockedPose(null)}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 text-white font-bold text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-[0.98] transition-all"
+            >
+              {t('Got it')}
+            </button>
           </div>
         </div>
       )}
     </div>
   );
 };
-

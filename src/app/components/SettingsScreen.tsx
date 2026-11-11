@@ -14,42 +14,48 @@ import {
   Trash2,
   AlertTriangle,
   Volume2,
+  Clock,
+  Camera,
   X,
   LogOut
 } from 'lucide-react';
-import { AppSettings, EditableProfileFields, UserProfile } from '../types';
-import { supabaseUpdatePassword, supabaseDeactivateAccount } from '../../services/supabaseApi';
+import { AppSettings, UserProfile } from '../types';
+import { supabaseUpdatePassword, supabaseDeactivateAccount, supabaseLogin } from '../../services/supabaseApi';
+import { clearAccountData } from '../../services/accountStorage';
 import { PASSWORD_RULE_MESSAGE, meetsPasswordPolicy } from '../utils/passwordPolicy';
 import { setAppLanguage, translate as t } from '../utils/localization';
 import {
   NotificationPermission,
   clearAllNotifications,
+  formatReminderTime12h,
   getNotificationPermission,
-  requestNotificationPermission
+  notifyDailyPracticeReminder,
+  requestNotificationPermission,
+  scheduleDailyPracticeReminder
 } from '../utils/notifications';
 
 /**
- * What the reminder row says, given what the OS actually reports.
- *
- * The point of this function is that it never claims a capability the device
- * does not have. `unsupported` is the honest answer in a browser, because the
- * web build has no notification channel wired.
+ * What the reminder row says, given what the OS/browser actually reports.
  */
 const notificationHint = (
   asking: boolean,
-  permission: NotificationPermission
+  permission: NotificationPermission,
+  enabled: boolean,
+  reminderTime?: string
 ): string => {
   if (asking) return t('Checking your device settings…');
   switch (permission) {
     case 'granted':
-      return t('Reminders when sessions are waiting to sync');
+      return enabled
+        ? `${t('Daily at')} ${formatReminderTime12h(reminderTime)} · ${t('Milestones & sync alerts')}`
+        : t('Daily practice reminders & milestone alerts');
     case 'denied':
-      return t('Blocked in your device settings');
+      return t('Blocked in your browser or device settings');
     case 'prompt':
-      return t('Allow to get sync reminders');
+      return t('Daily practice reminders & milestone alerts');
     case 'unsupported':
     default:
-      return t('Available in the installed app');
+      return t('Not supported on this browser/device');
   }
 };
 
@@ -57,17 +63,6 @@ interface SettingsScreenProps {
   settings: AppSettings;
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
   user: UserProfile;
-  /**
-   * Save the athlete-owned profile fields.
-   *
-   * Deliberately narrow. A `(Partial<UserProfile>) => void` callback would also
-   * accept `role`, `isVerified` and `email`, which the database and the admin
-   * console own -- an athlete able to write those could promote themselves to
-   * System Manager. `EditableProfileFields` is
-   * `Pick<UserProfile, 'name' | 'specialty'>`, so reaching for a server-owned
-   * field here is a compile error rather than a privilege escalation.
-   */
-  onEditProfile: (edits: EditableProfileFields) => void;
   onLogout?: () => void;
   onBack?: () => void;
 }
@@ -76,7 +71,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   settings,
   onUpdateSettings,
   user,
-  onEditProfile,
   onLogout,
   onBack
 }) => {
@@ -86,25 +80,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showDpaModal, setShowDpaModal] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-
-  // Profile editing.
-  //
-  // This was lost when the role and email inputs were stripped out of the edit
-  // form during the privilege-escalation fix: the whole modal went with them and
-  // the account card was left showing a name the athlete could not change. Only
-  // `name` and `specialty` are athlete-owned, so only those are editable here.
-  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-  const [editName, setEditName] = useState(user.name || '');
-  const [editSpecialty, setEditSpecialty] = useState(user.specialty || '');
-
-  // Re-seed the form from the live profile each time it opens, so a failed save
-  // or a change made elsewhere does not leave stale text behind.
-  useEffect(() => {
-    if (showEditProfileModal) {
-      setEditName(user.name || '');
-      setEditSpecialty(user.specialty || '');
-    }
-  }, [showEditProfileModal, user.name, user.specialty]);
 
   // OS-level notification permission, read without prompting. Kept separate
   // from `settings.notificationsEnabled`, which is only the athlete's stated
@@ -145,16 +120,38 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setAskingForPermission(true);
     const result = await requestNotificationPermission();
     if (result === 'granted') {
-      onUpdateSettings({ notificationsEnabled: true });
-      showToast('Practice reminders on');
+      const defaultTime = settings.reminderTime || '18:00';
+      onUpdateSettings({ notificationsEnabled: true, reminderTime: defaultTime });
+      await scheduleDailyPracticeReminder(defaultTime);
+      showToast(`Practice reminders on · Daily at ${formatReminderTime12h(defaultTime)}`);
     } else if (result === 'denied') {
       onUpdateSettings({ notificationsEnabled: false });
-      showToast('Notifications blocked in device settings');
+      showToast('Notifications blocked in browser or device settings');
+    } else if (result === 'prompt') {
+      showToast('Please allow notification permissions when prompted');
     } else {
-      showToast('Reminders are only available in the installed app');
+      showToast('Notifications are not supported on this browser/device');
     }
     setNotificationPermission(result);
     setAskingForPermission(false);
+  };
+
+  const handleReminderTimeChange = async (newTime: string) => {
+    if (!newTime) return;
+    onUpdateSettings({ reminderTime: newTime });
+    if (settings.notificationsEnabled) {
+      await scheduleDailyPracticeReminder(newTime);
+    }
+    showToast(`Daily reminder set for ${formatReminderTime12h(newTime)}`);
+  };
+
+  const handleTestReminder = async () => {
+    const sent = await notifyDailyPracticeReminder();
+    if (sent) {
+      showToast('Test reminder notification sent!');
+    } else {
+      showToast('Could not send notification — check browser/device permissions');
+    }
   };
 
   // Clear any pending toast timer on unmount.
@@ -172,22 +169,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }, 2800);
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = editName.trim();
-    if (!name) {
-      showToast(t('Your name cannot be empty'));
-      return;
-    }
-
-    // Only the two athlete-owned fields. `role`, `email` and the verification
-    // flags are not accepted by this callback at all -- see the prop docs.
-    onEditProfile({ name, specialty: editSpecialty.trim() });
-
-    setShowEditProfileModal(false);
-    showToast(t('Profile updated'));
-  };
-
   const handleUpdatePassword = async () => {
     if (user?.isGuest) {
       showToast('Sign in to create an account to change your password');
@@ -203,6 +184,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
     setIsUpdatingPassword(true);
     try {
+      // Re-authenticate with current credentials first to prevent unauthorized session takeovers
+      if (user?.email) {
+        await supabaseLogin(user.email, currentPassword);
+      }
       await supabaseUpdatePassword(newPassword);
       setShowPasswordModal(false);
       setCurrentPassword('');
@@ -221,8 +206,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       if (!user?.isGuest && user?.id) {
         await supabaseDeactivateAccount(user.id);
       }
-      // Clear local app state and return to the auth screen.
+      // Clear local account-scoped data and auth state, then return to the auth screen.
+      clearAccountData(user?.id);
       localStorage.removeItem('optistance_is_authenticated');
+      localStorage.removeItem('optistance_auth_user');
       localStorage.removeItem('optistance_user');
       if (onLogout) onLogout();
     } catch (err) {
@@ -233,20 +220,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   return (
     <div className="w-full min-h-screen bg-[#050507] text-[#E0E0E6] flex flex-col font-sans">
-      {/* Top Header with Back to Drawer Button */}
+      {/* Top Header with Back to Drawer Button - Safe Area Aware */}
       {onBack && (
-        <header className="sticky top-0 w-full z-40 bg-[#050507]/80 backdrop-blur-2xl border-b border-white/[0.06] px-4 md:px-8 h-16 flex items-center justify-between transition-all">
-          <button
-            onClick={onBack}
-            aria-label="Back to Navigation Drawer"
-            className="flex items-center gap-2 py-2 px-3.5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-zinc-200 hover:text-white transition-all group active:scale-95"
-          >
-            <ArrowLeft className="w-4 h-4 text-indigo-400 group-hover:-translate-x-0.5 transition-transform" />
-            <span className="text-xs font-bold tracking-wide">{t('Back to Menu')}</span>
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-            <span className="text-[11px] font-extrabold tracking-widest text-zinc-400 uppercase">{t('Settings & Preferences')}</span>
+        <header className="sticky top-0 w-full z-40 bg-[#050507]/90 backdrop-blur-2xl border-b border-white/[0.06] safe-header transition-all">
+          <div className="w-full px-4 md:px-8 h-16 flex items-center justify-between">
+            <button
+              onClick={onBack}
+              aria-label="Back to Navigation Drawer"
+              className="flex items-center gap-2 py-2 px-3.5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-zinc-200 hover:text-white transition-all group active:scale-95"
+            >
+              <ArrowLeft className="w-4 h-4 text-indigo-400 group-hover:-translate-x-0.5 transition-transform" />
+              <span className="text-xs font-bold tracking-wide">{t('Back to Menu')}</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+              <span className="text-[11px] font-extrabold tracking-widest text-zinc-400 uppercase">{t('Settings & Preferences')}</span>
+            </div>
           </div>
         </header>
       )}
@@ -275,7 +264,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {t('Settings & Privacy')}
             </h1>
             <p className="text-zinc-400 text-sm md:text-base max-w-lg leading-relaxed">
-              {t('Manage your OptiStance athlete profile securely and customize your real-time coaching telemetry parameters.')}
+              {t('Manage your account, training preferences, and privacy settings.')}
             </p>
           </div>
         </div>
@@ -287,29 +276,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <section className="bg-[#0d0d12]/80 rounded-3xl shadow-[0_4px_30px_rgba(0,0,0,0.5)] p-6 border border-white/[0.08] backdrop-blur-xl">
             <h2 className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-zinc-500 mb-4 flex items-center gap-2">
               <User className="w-3.5 h-3.5 text-indigo-400" />
-              {t('Account Profile')}
+              {t('Account Settings')}
             </h2>
             <div className="space-y-2">
-              {/* Edit Profile: name and specialty, the two athlete-owned fields */}
-              <button
-                onClick={() => setShowEditProfileModal(true)}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 active:scale-[0.98] transition-all group text-left border border-transparent hover:border-white/10"
-              >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300 group-hover:bg-white group-hover:text-black transition-all shrink-0">
-                    <User className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-bold text-white truncate">{t('Account Profile')}</h3>
-                    <p className="text-xs text-zinc-400 truncate">
-                      {user.name}
-                      {user.specialty ? ` · ${user.specialty}` : ''}
-                    </p>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:translate-x-0.5 group-hover:text-white transition-all shrink-0" />
-              </button>
-
               {/* Change Password - only available for registered accounts */}
               {!user?.isGuest && (
                 <button
@@ -330,41 +299,78 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               )}
 
               {/* Notifications */}
-              <div className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-colors">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300">
-                    <Bell className="w-5 h-5" />
+              <div className="rounded-2xl border border-transparent hover:border-white/10 transition-all">
+                <div className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-colors">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300">
+                      <Bell className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white">{t('Practice Reminders')}</h3>
+                      <p className="text-xs text-zinc-400">
+                        {notificationHint(
+                          askingForPermission,
+                          notificationPermission,
+                          settings.notificationsEnabled,
+                          settings.reminderTime
+                        )}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white">{t('Practice Reminders')}</h3>
-                    <p className="text-xs text-zinc-400">
-                      {notificationHint(askingForPermission, notificationPermission)}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings.notificationsEnabled}
-                  aria-label={t('Practice Reminders')}
-                  disabled={askingForPermission}
-                  onClick={handleNotificationToggle}
-                  className={`w-12 h-6 rounded-full transition-colors relative p-0.5 border border-white/10 disabled:opacity-50 ${
-                    settings.notificationsEnabled ? 'bg-white' : 'bg-white/10'
-                  }`}
-                >
-                  <div
-                    className={`w-5 h-5 rounded-full transition-transform ${
-                      settings.notificationsEnabled ? 'translate-x-6 bg-black' : 'translate-x-0 bg-zinc-400'
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={settings.notificationsEnabled}
+                    aria-label={t('Practice Reminders')}
+                    disabled={askingForPermission}
+                    onClick={handleNotificationToggle}
+                    className={`w-12 h-6 rounded-full transition-colors relative p-0.5 border border-white/10 disabled:opacity-50 ${
+                      settings.notificationsEnabled ? 'bg-white' : 'bg-white/10'
                     }`}
-                  />
-                </button>
+                  >
+                    <div
+                      className={`w-5 h-5 rounded-full transition-transform ${
+                        settings.notificationsEnabled ? 'translate-x-6 bg-black' : 'translate-x-0 bg-zinc-400'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {settings.notificationsEnabled && notificationPermission === 'granted' && (
+                  <div className="mx-3.5 mb-3.5 p-3.5 rounded-xl bg-white/[0.03] border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <Clock className="w-4 h-4 text-indigo-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-white">{t('Daily Reminder Time')}</p>
+                        <p className="text-[11px] text-zinc-400">
+                          {t('Nudges you if you have not practiced yet today')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        aria-label={t('Daily Reminder Time')}
+                        value={settings.reminderTime || '18:00'}
+                        onChange={(e) => handleReminderTimeChange(e.target.value)}
+                        className="bg-black/40 border border-white/15 rounded-xl text-xs font-bold text-white py-1.5 px-2.5 focus:ring-2 focus:ring-indigo-400 outline-none cursor-pointer [color-scheme:dark]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTestReminder}
+                        className="py-1.5 px-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 text-[11px] font-bold transition-all active:scale-95"
+                      >
+                        {t('Test')}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               {notificationPermission === 'denied' && (
                 <div className="flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.07] p-3">
                   <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-200/90 leading-relaxed">
-                    {t('Notifications are blocked in your device settings. Turn them on for OptiStance to get sync reminders.')}
+                    {t('Notifications are blocked in your browser or device settings. Allow notifications for OptiStance in your site/device settings to enable practice reminders.')}
                   </p>
                 </div>
               )}
@@ -394,6 +400,68 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <div
                     className={`w-5 h-5 rounded-full transition-transform ${
                       settings.audioCues ? 'translate-x-6 bg-black' : 'translate-x-0 bg-zinc-400'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">{t('Automatic Pose Capture')}</h3>
+                    <p className="text-xs text-zinc-400">
+                      {t('Capture after holding a target pose steadily for 5 seconds')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.autoCapture}
+                  aria-label={t('Automatic Pose Capture')}
+                  onClick={() => onUpdateSettings({ autoCapture: !settings.autoCapture })}
+                  className={`w-12 h-6 rounded-full transition-colors relative p-0.5 border border-white/10 ${
+                    settings.autoCapture ? 'bg-white' : 'bg-white/10'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full transition-transform ${
+                      settings.autoCapture ? 'translate-x-6 bg-black' : 'translate-x-0 bg-zinc-400'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 rounded-2xl hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-300">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">{t('Live Form Correction Overlay')}</h3>
+                    <p className="text-xs text-zinc-400">{t('Show form correction tips over the camera preview')}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.showFormCorrectionOverlay}
+                  aria-label={t('Live Form Correction Overlay')}
+                  onClick={() =>
+                    onUpdateSettings({ showFormCorrectionOverlay: !settings.showFormCorrectionOverlay })
+                  }
+                  className={`w-12 h-6 rounded-full transition-colors relative p-0.5 border border-white/10 ${
+                    settings.showFormCorrectionOverlay ? 'bg-white' : 'bg-white/10'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full transition-transform ${
+                      settings.showFormCorrectionOverlay
+                        ? 'translate-x-6 bg-black'
+                        : 'translate-x-0 bg-zinc-400'
                     }`}
                   />
                 </button>
@@ -574,99 +642,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </div>
       </div>
 
-      {/* Edit Profile Modal */}
-      {showEditProfileModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <form
-            onSubmit={handleSaveProfile}
-            className="bg-[#0d0d12]/95 text-[#E0E0E6] rounded-3xl p-6 md:p-8 w-full max-w-md shadow-[0_0_60px_rgba(0,0,0,0.9)] border border-white/10 backdrop-blur-2xl"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-lg font-extrabold text-white">{t('Account Profile')}</h3>
-              <button
-                type="button"
-                onClick={() => setShowEditProfileModal(false)}
-                aria-label={t('Cancel')}
-                className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor="settings-profile-name"
-                  className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5"
-                >
-                  {t('Name')}
-                </label>
-                <input
-                  id="settings-profile-name"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  autoComplete="name"
-                  className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="settings-profile-specialty"
-                  className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1.5"
-                >
-                  {t('Training Motto / Goal')}
-                </label>
-                <input
-                  id="settings-profile-specialty"
-                  value={editSpecialty}
-                  onChange={(e) => setEditSpecialty(e.target.value)}
-                  placeholder='e.g. Clean lines, zero wobble'
-                  className="w-full px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.03] text-white text-sm outline-none focus:border-indigo-400"
-                />
-              </div>
-
-              {/*
-                Email and role are shown read-only rather than omitted, so it is
-                clear they exist and are not editable here, rather than leaving
-                the athlete to wonder where they went. Neither is accepted by
-                `onEditProfile`.
-              */}
-              <div className="pt-2 border-t border-white/[0.08] space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                    {t('Email Address')}
-                  </span>
-                  <span className="text-xs text-zinc-400 truncate">{user.email}</span>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                    {t('Role')}
-                  </span>
-                  <span className="text-xs text-zinc-400">{user.role}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEditProfileModal(false)}
-                  className="flex-1 py-3.5 rounded-2xl border border-white/10 text-zinc-300 text-xs font-extrabold uppercase tracking-wider hover:bg-white/5 transition-all"
-                >
-                  {t('Cancel')}
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3.5 rounded-2xl bg-white text-black text-xs font-extrabold uppercase tracking-wider shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-zinc-200 transition-all"
-                >
-                  {t('Save')}
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-
       {/* Change Password Modal */}
       {showPasswordModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
@@ -726,7 +701,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               Delete Account?
             </h3>
             <p className="text-xs text-zinc-400 mb-6 leading-relaxed">
-              Are you sure you want to delete your account? All recorded session telemetry, ICU score cards, and skill milestones will be permanently cleared.
+              Are you sure you want to permanently delete your account? Your login credentials, profile, recorded session telemetry, ICU score cards, support tickets, and Admin roster record will be permanently erased from Supabase.
             </p>
             <div className="flex items-center gap-3">
               <button
@@ -792,4 +767,3 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     </div>
   );
 };
-

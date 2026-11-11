@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Activity,
   Eye,
@@ -16,7 +16,8 @@ import { UserProfile } from '../types';
 import {
   supabaseLogin,
   supabaseSignUp,
-  supabaseResetPassword
+  supabaseResetPassword,
+  supabaseUpdatePassword
 } from '../../services/supabaseApi';
 import { describeAuthError } from '../utils/authErrors';
 import { useResendVerification } from '../hooks/useResendVerification';
@@ -26,9 +27,16 @@ import { translate as t } from '../utils/localization';
 interface AuthScreenProps {
   onAuthSuccess: (user: UserProfile) => void;
   onContinueAsGuest: () => void;
+  isPasswordRecovery?: boolean;
+  onPasswordRecoveryComplete?: () => void;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinueAsGuest }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({
+  onAuthSuccess,
+  onContinueAsGuest,
+  isPasswordRecovery = false,
+  onPasswordRecoveryComplete
+}) => {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -37,6 +45,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [resetStatus, setResetStatus] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
   const [isSendingReset, setIsSendingReset] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordResetError, setPasswordResetError] = useState<string | null>(null);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [passwordResetComplete, setPasswordResetComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginNeedsConfirmation, setLoginNeedsConfirmation] = useState(false);
@@ -49,15 +62,26 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
-  const [agreeTerms, setAgreeTerms] = useState(true);
+  const [agreeTerms, setAgreeTerms] = useState(false);
 
   // Post-Signup Verification Choice Modal State
   const [pendingUser, setPendingUser] = useState<UserProfile | null>(null);
   const [showVerifyChoiceModal, setShowVerifyChoiceModal] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Resend helper for login and signup confirmation flows
   const loginResend = useResendVerification(loginEmail);
   const signupResend = useResendVerification(pendingUser?.email || signupEmail);
+
+  // 60-second cooldown after initial signup so the user does not accidentally
+  // double-send and trigger Supabase's 60-second security rate-limit block.
+  useEffect(() => {
+    if (!showVerifyChoiceModal || resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [showVerifyChoiceModal, resendCooldown]);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +89,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
     setLoginNeedsConfirmation(false);
 
     if (!loginEmail.trim()) {
-      setError('Please enter your email or Athlete ID.');
+      setError('Please enter your email address.');
       return;
     }
     if (!loginPassword) {
@@ -149,8 +173,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
         isVerified: false
       };
 
-      // Prompt user choice: Send confirmation email now or skip to profile later
+      if (!requiresEmailConfirmation) {
+        onAuthSuccess(newUser);
+        return;
+      }
+
+      // Supabase's signUp() already dispatched the confirmation email when
+      // requiresEmailConfirmation is true. Show the confirmation notice with a
+      // 60s cooldown on Resend so the user does not double-send and hit rate limits.
       setPendingUser(newUser);
+      setResendCooldown(60);
       setShowVerifyChoiceModal(true);
     } catch (err) {
       setError(describeAuthError(err));
@@ -243,6 +275,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
             </div>
           )}
 
+          {passwordResetComplete && (
+            <div className="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+              Password updated successfully. Sign in with your new password.
+            </div>
+          )}
+
           {/* Unconfirmed email: offer a resend without leaving the login form */}
           {authMode === 'login' && loginNeedsConfirmation && (
             <div className="mb-4 -mt-1">
@@ -264,17 +302,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  {t('Email or Athlete ID')}
+                  {t('Email Address')}
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
                     <Mail className="w-4 h-4" />
                   </div>
                   <input
-                    type="text"
+                    type="email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder={t('Email or Athlete ID')}
+                    placeholder={t('Email Address')}
+                    autoComplete="email"
                     className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/[0.08] focus:outline-none rounded-2xl text-xs text-white placeholder-zinc-500 transition-all shadow-sm"
                   />
                 </div>
@@ -443,13 +482,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
         </div>
       </footer>
 
-      {/* Account Recovery.
-          This project has no outbound email service configured, so a reset link
-          can never be delivered. The old flow collected an address, offered a
-          send button, called the API, and only *then* revealed it had emailed
-          nothing — a two-step dead end. It now states the situation and the
-          working route (ask an administrator) up front. */}
-      {/* Post-Signup Verification Choice Modal */}
+      {/* Post-Signup Confirmation Notice Modal */}
       {showVerifyChoiceModal && pendingUser && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
           <div
@@ -458,24 +491,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
             className="bg-[#0e0e14] border border-white/10 rounded-3xl p-6 sm:p-7 max-w-sm w-full shadow-2xl relative animate-fade-in-up text-[#E0E0E6]"
           >
             <div className="text-center py-2">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
-                <ShieldCheck className="w-7 h-7" />
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+                <Mail className="w-7 h-7" />
               </div>
 
               <h3 className="text-lg font-black text-white mb-1.5">
-                Confirm Authentication?
+                Confirmation Email Sent!
               </h3>
 
               <p className="text-xs text-zinc-400 mb-2 leading-relaxed">
-                Would you like to send an email confirmation link now to:
+                We automatically dispatched a confirmation link to:
               </p>
               <p className="text-xs font-semibold text-indigo-300 break-all bg-white/5 border border-white/10 rounded-xl py-1.5 px-3 mb-4">
                 {pendingUser.email}
               </p>
 
-              <p className="text-[11px] text-zinc-500 mb-5 leading-relaxed text-left bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
-                <span className="font-semibold text-zinc-300 block mb-0.5">Your Choice:</span>
-                You can authenticate now, or skip and do it anytime later from your <span className="text-indigo-300 font-semibold">Profile tab</span> to unlock advanced stunts.
+              <p className="text-[11px] text-zinc-400 mb-5 leading-relaxed text-left bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
+                <span className="font-semibold text-zinc-200 block mb-0.5">What happens next:</span>
+                Check your inbox (and spam folder) and click the link to confirm. You can enter the app right now and confirm anytime from your <span className="text-indigo-300 font-semibold">Profile tab</span>.
               </p>
 
               {signupResend.status && (
@@ -493,33 +526,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
               <div className="flex flex-col gap-2.5">
                 <button
                   type="button"
-                  onClick={async () => {
-                    const res = await signupResend.resend();
-                    // Only auto-proceed into the app if the email sent successfully!
-                    // If an error occurred, keep modal open so the user sees the red error banner.
-                    if (res?.ok) {
-                      setTimeout(() => {
-                        setShowVerifyChoiceModal(false);
-                        onAuthSuccess(pendingUser);
-                      }, 2000);
-                    }
-                  }}
-                  disabled={signupResend.isSending}
-                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{signupResend.isSending ? 'Sending Link…' : 'Send Confirmation Email'}</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => {
                     setShowVerifyChoiceModal(false);
                     onAuthSuccess(pendingUser);
                   }}
-                  className="w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 hover:text-white text-xs font-bold transition-all"
+                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2"
                 >
-                  Skip for Now (Go to App)
+                  <span>Continue to App</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await signupResend.resend();
+                    if (res?.ok) {
+                      setResendCooldown(60);
+                    }
+                  }}
+                  disabled={signupResend.isSending || resendCooldown > 0}
+                  className="w-full py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white text-xs font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>
+                    {signupResend.isSending
+                      ? 'Resending…'
+                      : resendCooldown > 0
+                        ? `Didn't get it? Resend in ${resendCooldown}s`
+                        : 'Resend Confirmation Email'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -527,7 +562,97 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
         </div>
       )}
 
-      {showForgotPassword && (
+      {isPasswordRecovery && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-password-title"
+            className="bg-[#0e0e14] border border-white/10 rounded-3xl p-6 sm:p-7 max-w-sm w-full shadow-2xl relative animate-fade-in-up"
+          >
+            <div className="text-center py-2">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 flex items-center justify-center mx-auto mb-3">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h3 id="new-password-title" className="text-lg font-black text-white mb-1.5">
+                Choose a New Password
+              </h3>
+              <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+                Enter a new password to finish recovering your account.
+              </p>
+
+              {passwordResetComplete ? (
+                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                  Your password has been updated. You can now continue using your account.
+                </div>
+              ) : (
+                <>
+                  {passwordResetError && (
+                    <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs text-left">
+                      {passwordResetError}
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!meetsPasswordPolicy(newPassword)) {
+                        setPasswordResetError(PASSWORD_RULE_MESSAGE);
+                        return;
+                      }
+                      if (newPassword !== confirmNewPassword) {
+                        setPasswordResetError('Passwords do not match.');
+                        return;
+                      }
+
+                      setIsUpdatingPassword(true);
+                      setPasswordResetError(null);
+                      try {
+                        await supabaseUpdatePassword(newPassword);
+                        setPasswordResetComplete(true);
+                        onPasswordRecoveryComplete?.();
+                      } catch (err) {
+                        setPasswordResetError(describeAuthError(err));
+                      } finally {
+                        setIsUpdatingPassword(false);
+                      }
+                    }}
+                    className="space-y-3"
+                  >
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder={PASSWORD_RULE_MESSAGE}
+                      autoComplete="new-password"
+                      required
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/[0.08] focus:outline-none rounded-2xl text-xs text-white placeholder-zinc-500 transition-all shadow-sm"
+                    />
+                    <input
+                      type="password"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      placeholder="Confirm new password"
+                      autoComplete="new-password"
+                      required
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/[0.08] focus:outline-none rounded-2xl text-xs text-white placeholder-zinc-500 transition-all shadow-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isUpdatingPassword}
+                      className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      {isUpdatingPassword ? 'Updating Password…' : 'Update Password'}
+                    </button>
+                  </form>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showForgotPassword && !isPasswordRecovery && (
         <div
           className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4"
           onClick={() => {
@@ -563,7 +688,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
                 Reset Your Password
               </h3>
               <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-                Enter your registered Gmail address and we will dispatch a password recovery link to your inbox.
+                Enter your registered email address and we will send a password recovery link to your inbox.
               </p>
 
               {resetStatus && (
@@ -591,7 +716,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess, onContinu
                   setResetStatus(null);
                   try {
                     await supabaseResetPassword(resetEmail.trim());
-                    setResetStatus('Password reset link sent! Check your Gmail (and spam folder).');
+                    setResetStatus('Password reset link sent! Check your inbox (and spam folder).');
                   } catch (err) {
                     setResetError(describeAuthError(err));
                   } finally {

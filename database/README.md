@@ -1,40 +1,22 @@
-Database setup (PostgreSQL)
+# Database Schema & Seed Files
 
-1) Install PostgreSQL (or use an existing server).
+The canonical database schema, Row-Level Security (RLS) policies, and migrations for **OptiStance** live in the [`supabase/`](../supabase/) directory and are designed for Supabase PostgreSQL (incorporating `auth.users` and `auth.uid()`).
 
-2) Create a database and user (example):
+## Recommended Setup (Supabase)
 
-```powershell
-# create DB and user (run in psql as a superuser)
-CREATE DATABASE myapp_db;
-CREATE USER myapp_user WITH PASSWORD 'secure_password';
-GRANT ALL PRIVILEGES ON DATABASE myapp_db TO myapp_user;
-```
+Follow [SUPABASE_SETUP.md](../SUPABASE_SETUP.md) for the complete database setup:
+1. Run [`supabase/schema.sql`](../supabase/schema.sql) in the Supabase SQL Editor.
+2. Run [`supabase/fix_user_sync.sql`](../supabase/fix_user_sync.sql) to install the `auth.users` → `public.users` sync trigger.
+3. Apply all migrations in [`supabase/migrations/`](../supabase/migrations/) in chronological order.
+4. Optionally run [`supabase/seed.sql`](../supabase/seed.sql) to seed sample stunts and ICU joint angle standards.
 
-3) Apply the schema:
+## Creating Admin & Test Users
 
-```powershell
-psql -U myapp_user -d myapp_db -f "database/schema.sql"
-```
+Because user credentials are managed by Supabase Auth (`auth.users`) and `public.users` rows are created via the `handle_new_user` trigger:
+- Use `npm run create:test-user -- --admin` (see [SUPABASE_SETUP.md](../SUPABASE_SETUP.md#step-8-create-initial-admin-user-or-test-accounts)), or
+- Create a user in **Supabase Dashboard → Authentication → Users** and promote them in the SQL Editor:
+  ```sql
+  UPDATE public.users SET role = 'admin' WHERE email = 'admin@optistances.com';
+  ```
 
-4) Generate bcrypt hashes for passwords and update `database/seed.sql` replacing `<BCRYPT_HASH>` placeholders. Example (Node):
-
-```bash
-node -e "console.log(require('bcryptjs').hashSync('YourAdminPassword', 10))"
-```
-
-5) Apply the seed:
-
-```powershell
-psql -U myapp_user -d myapp_db -f "database/seed.sql"
-```
-
-6) Verify admin exists:
-
-```powershell
-psql -U myapp_user -d myapp_db -c "SELECT id, email, role FROM users WHERE role='admin';"
-```
-
-Notes:
-- If you prefer SQLite or MySQL, tell me and I will produce equivalent files.
-- Integrate with your application by using the connection string: `postgresql://myapp_user:secure_password@localhost:5432/myapp_db`.
+> **Note on `database/schema.sql` and `database/seed.sql`**: These files are legacy reference copies. Always use [`supabase/schema.sql`](../supabase/schema.sql) and [`supabase/migrations/`](../supabase/migrations/) as the source of truth.

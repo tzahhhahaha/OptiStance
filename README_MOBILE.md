@@ -1,32 +1,33 @@
-This project can be packaged for iOS and Android using Capacitor. Follow these steps locally (requires Node.js/npm and Android Studio/Xcode for device builds).
+# Mobile Packaging Quick Reference (Capacitor)
 
-1) Install deps
+OptiStance is pre-configured for iOS and Android using Capacitor (`capacitor.config.json` with `appId: com.optistance.cheerpose` and `appName: OptiStance`).
+
+## 1. Install Dependencies
 
 ```bash
 npm install
 ```
 
-2) Add Capacitor
+## 2. Configure Environment
+
+Create `.env.local` (see `.env.example`) with your Supabase credentials (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) to enable cloud authentication, syllabus updates, and session syncing. Without `.env.local`, the app runs in local/guest mode.
+
+## 3. Build & Open Native Projects
+
+The following scripts automatically vendor the offline MediaPipe Pose & Hands models (`npm run vendor:mediapipe`), build the web bundle (`vite build`), sync Capacitor (`npx cap sync`), and open the native IDE:
 
 ```bash
-npx cap init CheerPose com.example.cheerpose --web-dir=dist
-# or use the included capacitor.config.json
+# Android (opens Android Studio)
+npm run build:android
+
+# iOS (requires macOS + Xcode)
+npm run build:ios
 ```
 
-3) Build web assets and sync to native projects
-
+To sync web changes without launching the IDE:
 ```bash
-npm run build:mobile
-# then to add platforms:
-npx cap add android
-# (on macOS) npx cap add ios
-
-# Open native IDEs:
-npx cap open android
-npx cap open ios
+npm run build
+npm run sync
 ```
 
-4) Notes
-- Add actual app icons under `public/icons/` matching the manifest filenames.
-- Provide Firebase env vars in `.env` for auth/storage if you want cloud features.
-- For iOS builds you'll need a Mac with Xcode.
+For full details, see [NATIVE_APP_SETUP.md](NATIVE_APP_SETUP.md).

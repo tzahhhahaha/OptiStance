@@ -138,10 +138,14 @@ export const userService = {
     unwrap(null, error, `update role of user ${userId}`);
   },
 
-  /** Soft-delete: flips `is_active` to false (rows are never hard-deleted). */
+  /** Permanently erase the user and all cascaded telemetry records. */
   async deleteUser(userId: string): Promise<void> {
-    const { error } = await supabase.from('users').update({ is_active: false }).eq('id', userId);
-    unwrap(null, error, `deactivate user ${userId}`);
+    if (typeof supabase.rpc === 'function') {
+      const { error: rpcError } = await supabase.rpc('delete_user_account', { p_user_id: userId });
+      if (!rpcError) return;
+    }
+    const { error } = await supabase.from('users').delete().eq('id', userId);
+    unwrap(null, error, `delete user ${userId}`);
   },
 
   async getAthleteProfile(userId: string): Promise<AthleteProfile | null> {
@@ -166,22 +170,6 @@ export const stuntService = {
       .eq('is_archived', false)
       .order('created_at', { ascending: false });
     const stunts = unwrap<Stunt[]>(data ?? [], error, 'fetch stunts');
-    try {
-      const stored = localStorage.getItem('optistance_locked_stunts');
-      if (stored) {
-        const lockedIds = new Set<string>(JSON.parse(stored));
-        return stunts.map((s) => ({
-          ...s,
-          is_locked:
-            Boolean(s.is_locked) ||
-            lockedIds.has(s.id) ||
-            (s.pose_key ? lockedIds.has(s.pose_key) : false) ||
-            lockedIds.has(s.name.toLowerCase().trim()),
-        }));
-      }
-    } catch {
-      // ignore storage errors
-    }
     return stunts;
   },
 
@@ -233,70 +221,6 @@ export const stuntService = {
     unwrap(null, error, `delete stunt ${stuntId}`);
   },
 
-  /** Lock or unlock a stunt to make it temporarily unavailable/available for practice. */
-  async toggleLock(stuntId: string, isLocked: boolean): Promise<void> {
-    const { data, error } = await supabase
-      .from('stunts')
-      .update({ is_locked: isLocked, updated_at: new Date().toISOString() })
-      .eq('id', stuntId)
-      .select('id, is_locked')
-      .maybeSingle();
-    const updated = unwrap<{ id: string; is_locked: boolean } | null>(
-      data,
-      error,
-      `update stunt lock ${stuntId}`
-    );
-    if (!updated) {
-      throw new Error('The stunt lock was not saved. Verify admin access and database policies, then retry.');
-    }
-
-    try {
-      const stored = localStorage.getItem('optistance_locked_stunts');
-      const set = new Set<string>(stored ? JSON.parse(stored) : []);
-      if (isLocked) {
-        set.add(stuntId);
-      } else {
-        set.delete(stuntId);
-      }
-      localStorage.setItem('optistance_locked_stunts', JSON.stringify([...set]));
-    } catch {
-      // ignore storage errors
-    }
-  },
-
-  subscribeToLockChanges(
-    onChange: (stunt: Pick<Stunt, 'id' | 'name' | 'pose_key' | 'is_locked'>) => void
-  ) {
-    const channel = supabase
-      .channel('stunt-lock-changes')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'stunts' }, (payload) => {
-        const row = payload.new as Partial<Stunt>;
-        if (
-          typeof row.id !== 'string' ||
-          typeof row.name !== 'string' ||
-          typeof row.is_locked !== 'boolean'
-        ) {
-          return;
-        }
-        onChange({
-          id: row.id,
-          name: row.name,
-          pose_key: row.pose_key ?? null,
-          is_locked: row.is_locked,
-        });
-      })
-      .subscribe((status, error) => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          console.warn('[stuntService] Realtime lock subscription unavailable:', error ?? status);
-        }
-      });
-
-    return () => {
-      void supabase.removeChannel(channel).catch((error) => {
-        console.warn('[stuntService] Failed to close realtime lock subscription:', error);
-      });
-    };
-  },
 };
 
 // ============================================================

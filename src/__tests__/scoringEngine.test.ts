@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { calculateJointAngle, calculateTorsoLean } from '../app/scoring/angles';
+import {
+  calculateJointAngle,
+  calculateTorsoLean,
+  calculateVectorElevationFromHorizontal,
+  calculateVectorTiltFromVertical,
+} from '../app/scoring/angles';
 import { scorePose } from '../app/scoring/scorePose';
 import { calculateSkillLevel } from '../app/utils/profile';
 import { INITIAL_POSES } from '../app/data/poses';
@@ -44,6 +49,18 @@ describe('Kinematic Vector Angle Engine', () => {
     const lean = calculateTorsoLean(shoulder, hip);
     expect(lean).toBe(0);
   });
+
+  it('calculates 3D joint and limb alignment angles with camera aspect correction', () => {
+    const straightAngle = calculateJointAngle(
+      { x: -1, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0 },
+      { x: 1, y: 0, z: 0 },
+      16 / 9
+    );
+    expect(straightAngle?.angle).toBe(180);
+    expect(calculateVectorElevationFromHorizontal({ x: 0, y: 0 }, { x: 1, y: 0 }, 16 / 9)).toBe(0);
+    expect(calculateVectorTiltFromVertical({ x: 0, y: 0 }, { x: 0, y: 1 }, 16 / 9)).toBe(0);
+  });
 });
 
 describe('Pose Scoring Engine & ICU Tiers', () => {
@@ -67,12 +84,116 @@ describe('Pose Scoring Engine & ICU Tiers', () => {
     landmarks[23] = { x: 0.55, y: 0.65, z: 0, visibility: 0.98 };
 
     const telemetry = scorePose(tMotionPose, landmarks);
+    expect(telemetry.evaluations.find((evaluation) => evaluation.jointKey === 'leftShoulder')?.tolerance).toBe(25);
+    expect(telemetry.evaluations.find((evaluation) => evaluation.jointKey === 'leftElbow')?.tolerance).toBe(25);
     expect(telemetry.formScore).toBeGreaterThanOrEqual(0);
     expect(telemetry.icuScore).toBeGreaterThanOrEqual(1.0);
     expect(telemetry.icuScore).toBeLessThanOrEqual(10.0);
     expect(['Elite', 'Proficient', 'Form Deduction']).toContain(telemetry.icuTier);
     expect(typeof telemetry.primaryCoachCue).toBe('string');
     expect(telemetry.primaryCoachCue.length).toBeGreaterThan(0);
+  });
+
+  it('recognizes kinematic standards and scores each of the 9 bundled poses', () => {
+    const dummyLandmarks = Array.from({ length: 33 }, (_, i) => ({
+      x: 0.5,
+      y: 0.1 + (i / 33) * 0.8,
+      z: 0,
+      visibility: 0.95,
+    }));
+    // Base leg differentiation for stunts
+    dummyLandmarks[27] = { x: 0.48, y: 0.95, z: 0, visibility: 0.98 }; // left ankle lower
+    dummyLandmarks[28] = { x: 0.52, y: 0.70, z: 0, visibility: 0.98 }; // right ankle lifted
+
+    expect(INITIAL_POSES).toHaveLength(9);
+
+    for (const pose of INITIAL_POSES) {
+      const result = scorePose(pose, dummyLandmarks);
+      expect(result.targetStandard, `Missing standard for ${pose.id}`).not.toBeNull();
+      expect(result.targetStandard?.id).toBe(pose.id);
+      expect(result.icuScore).toBeGreaterThanOrEqual(1.0);
+      expect(result.icuScore).toBeLessThanOrEqual(10.0);
+      expect(result.evaluations.length).toBeGreaterThan(0);
+      expect(result.primaryCoachCue).toBeTruthy();
+    }
+  });
+
+  it('accurately scores High V and Low V in waist-up framing when hips have low visibility', () => {
+    // Synthetic landmarks where hips (23, 24) and legs (25-28) are cut off / low visibility
+    const waistUpLandmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.05 }));
+
+    // High V arm landmarks (visible upper body)
+    waistUpLandmarks[11] = { x: 0.40, y: 0.40, z: 0, visibility: 0.95 }; // L shoulder
+    waistUpLandmarks[12] = { x: 0.60, y: 0.40, z: 0, visibility: 0.95 }; // R shoulder
+    waistUpLandmarks[13] = { x: 0.28, y: 0.25, z: 0, visibility: 0.95 }; // L elbow
+    waistUpLandmarks[14] = { x: 0.72, y: 0.25, z: 0, visibility: 0.95 }; // R elbow
+    waistUpLandmarks[15] = { x: 0.16, y: 0.10, z: 0, visibility: 0.95 }; // L wrist
+    waistUpLandmarks[16] = { x: 0.84, y: 0.10, z: 0, visibility: 0.95 }; // R wrist
+
+    const highVResult = scorePose('high-v', waistUpLandmarks);
+    expect(highVResult.isTargetRecognized).toBe(true);
+    expect(highVResult.formScore).toBeGreaterThanOrEqual(75);
+    expect(highVResult.measuredAngles.leftShoulder).toBeDefined();
+    expect(highVResult.measuredAngles.rightShoulder).toBeDefined();
+
+    // Low V arm landmarks (visible upper body)
+    waistUpLandmarks[13] = { x: 0.28, y: 0.55, z: 0, visibility: 0.95 }; // L elbow
+    waistUpLandmarks[14] = { x: 0.72, y: 0.55, z: 0, visibility: 0.95 }; // R elbow
+    waistUpLandmarks[15] = { x: 0.18, y: 0.70, z: 0, visibility: 0.95 }; // L wrist
+    waistUpLandmarks[16] = { x: 0.82, y: 0.70, z: 0, visibility: 0.95 }; // R wrist
+
+    const lowVResult = scorePose('low-v', waistUpLandmarks);
+    expect(lowVResult.isTargetRecognized).toBe(true);
+    expect(lowVResult.formScore).toBeGreaterThanOrEqual(75);
+    expect(lowVResult.measuredAngles.leftShoulder).toBeDefined();
+    expect(lowVResult.measuredAngles.rightShoulder).toBeDefined();
+  });
+
+  it('scores an Arabesque using standing alignment, rear-leg height, and T-arm checks', () => {
+    const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.98 }));
+    landmarks[11] = { x: 0.39, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[12] = { x: 0.69, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[13] = { x: 0.24, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[14] = { x: 0.84, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[15] = { x: 0.09, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[16] = { x: 0.99, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[23] = { x: 0.46, y: 0.5, z: 0, visibility: 0.98 };
+    landmarks[24] = { x: 0.54, y: 0.5, z: 0, visibility: 0.98 };
+    landmarks[25] = { x: 0.46, y: 0.72, z: 0, visibility: 0.98 };
+    landmarks[26] = { x: 0.71, y: 0.5, z: 0, visibility: 0.98 };
+    landmarks[27] = { x: 0.46, y: 0.95, z: 0, visibility: 0.98 };
+    landmarks[28] = { x: 0.88, y: 0.5, z: 0, visibility: 0.98 };
+
+    const result = scorePose('arabesque', landmarks);
+    expect(result.baseLeg).toBe('left');
+    expect(result.isTargetRecognized).toBe(true);
+    expect(result.measuredAngles.standingKnee).toBe(180);
+    expect(result.measuredAngles.liftedKnee).toBe(180);
+    expect(result.measuredAngles.standingLegAlignment).toBe(0);
+    expect(result.measuredAngles.rearLegElevation).toBe(0);
+    expect(result.measuredAngles.leftArmElevation).toBe(0);
+    expect(result.measuredAngles.rightArmElevation).toBe(0);
+  });
+
+  it('does not recognize an Arabesque when required joint measurements are missing', () => {
+    const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.98 }));
+    landmarks[11] = { x: 0.4, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[12] = { x: 0.6, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[13] = { x: 0.25, y: 0.3, z: 0, visibility: 0.05 };
+    landmarks[14] = { x: 0.75, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[15] = { x: 0.1, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[16] = { x: 0.9, y: 0.3, z: 0, visibility: 0.98 };
+    landmarks[23] = { x: 0.46, y: 0.5, z: 0, visibility: 0.98 };
+    landmarks[24] = { x: 0.54, y: 0.5, z: 0, visibility: 0.98 };
+    landmarks[25] = { x: 0.46, y: 0.72, z: 0, visibility: 0.98 };
+    landmarks[26] = { x: 0.71, y: 0.5, z: 0, visibility: 0.98 };
+    landmarks[27] = { x: 0.46, y: 0.95, z: 0, visibility: 0.98 };
+    landmarks[28] = { x: 0.88, y: 0.5, z: 0, visibility: 0.98 };
+
+    const result = scorePose('arabesque', landmarks);
+    expect(result.measuredAngles.leftElbow).toBeUndefined();
+    expect(result.isTargetRecognized).toBe(false);
+    expect(result.formScore).toBeLessThan(100);
   });
 });
 

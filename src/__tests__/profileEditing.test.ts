@@ -77,34 +77,26 @@ describe('password policy', () => {
   });
 });
 
-describe('the athlete cannot grant themselves admin', () => {
+describe('profile editing is removed', () => {
   const readProfile = () => readFileSync('src/app/components/ProfileScreen.tsx', 'utf8');
   const readSettings = () => readFileSync('src/app/components/SettingsScreen.tsx', 'utf8');
+  const readApp = () => readFileSync('src/app/App.tsx', 'utf8');
+  const readApi = () => readFileSync('src/services/supabaseApi.ts', 'utf8');
 
-  it('neither edit form offers a role field', () => {
-    // Both forms used to write a free-text "Cheer Specialty / Role" straight
-    // into user.role, and the admin console is gated on that value — so typing
-    // "SystemManager" revealed the admin UI.
-    expect(readProfile()).not.toMatch(/setEditRole/);
-    expect(readSettings()).not.toMatch(/setEditRole/);
+  it('removes profile edit controls and forms from Profile and Settings', () => {
+    expect(readProfile()).not.toMatch(/Edit Profile|showEditModal|handleSaveProfile|onEditProfile/);
+    expect(readSettings()).not.toMatch(/showEditProfileModal|settings-profile-name|handleSaveProfile|onEditProfile/);
   });
 
-  it('neither edit form writes role, email or verification flags', () => {
-    for (const source of [readProfile(), readSettings()]) {
-      expect(source).toMatch(/onEditProfile\(\{/);
-      // The save must go through the narrow callback, not the general one.
-      expect(source).not.toMatch(/onUpdateUser\(\{[^}]*\brole:/);
-      expect(source).not.toMatch(/onEditProfile\(\{[^}]*\bemail:/);
-    }
+  it('removes the account profile summary from Settings and labels the section clearly', () => {
+    expect(readSettings()).not.toMatch(/Account Profile/);
+    expect(readSettings()).toMatch(/t\('Account Settings'\)/);
+    expect(readSettings()).toMatch(/Manage your account, training preferences, and privacy settings\./);
   });
 
-  it('the profile save callback only accepts editable fields', () => {
-    // Type-level guard: EditableProfileFields excludes the server-owned fields,
-    // so a form that tried to write one would not compile.
-    const types = readFileSync('src/app/types.ts', 'utf8');
-    expect(types).toMatch(
-      /export type EditableProfileFields = Pick<UserProfile, 'name' \| 'specialty'>;/
-    );
+  it('removes the profile save callback and Supabase update helper', () => {
+    expect(readApp()).not.toMatch(/handleEditProfile|supabaseUpdateProfile|EditableProfileFields/);
+    expect(readApi()).not.toMatch(/supabaseUpdateProfile|EditableProfileFields/);
   });
 });
 

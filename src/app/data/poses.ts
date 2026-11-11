@@ -6,26 +6,26 @@ export const INITIAL_POSES: Pose[] = [
     name: 'T-Motion',
     category: 'Pom Motion',
     difficulty: 'Beginner',
-    description: 'Arms extended horizontally to the sides in a straight line. Maintain a tall posture and keep shoulders level.',
+    description: 'Extend your arms comfortably out to the sides, near shoulder height. Keep a relaxed, centered posture.',
     practiceTips: [
-      { text: 'Open arms to a straight line.', type: 'check' },
-      { text: 'Keep shoulders level.', type: 'check' },
-      { text: 'Avoid leaning.', type: 'warning' }
+      { text: 'Reach your arms outward toward shoulder height.', type: 'check' },
+      { text: 'Keep your shoulders relaxed and level.', type: 'check' },
+      { text: 'Stay centered without forcing a rigid pose.', type: 'warning' }
     ],
     masteryPercentage: 0,
     imageUrl: '/poses/t-motion.jpg',
     points: 100,
     idealAngles: {
-      armSpread: '180° horizontal',
-      elbowAngle: '180° locked',
-      torsoAngle: '90° vertical'
+      armSpread: 'Near horizontal, around shoulder height',
+      elbowAngle: 'Comfortably extended',
+      torsoAngle: 'Upright and centered'
     },
     commonMistakes: [
       'Dropping arms below shoulder height',
       'Hyperextending wrists outward',
       'Hunching upper traps'
     ],
-    icuStandardGuideline: 'ICU Pom & Cheer Rule 4.2: Arms must form a continuous 180° plane without deviation along coronal axis.',
+    icuStandardGuideline: 'Beginner practice target: reach both arms out near shoulder height while maintaining a comfortable, centered posture.',
     defaultSkeleton: {
       joints: [
         { id: 'neck', name: 'Neck', x: 50, y: 28, status: 'correct' },
@@ -70,11 +70,12 @@ export const INITIAL_POSES: Pose[] = [
     ],
     masteryPercentage: 0,
     imageUrl: '/poses/high-v.jpg',
+    videoUrl: '/poses/videos/high-v.mp4',
     points: 100,
     idealAngles: {
       armSpread: '45° from vertical',
       elbowAngle: '180° locked',
-      torsoAngle: '90° vertical'
+      torsoAngle: '90° vertical posture'
     },
     commonMistakes: [
       'Bending wrists backward (broken wrists)',
@@ -126,11 +127,12 @@ export const INITIAL_POSES: Pose[] = [
     ],
     masteryPercentage: 0,
     imageUrl: '/poses/low-v.jpg',
+    videoUrl: '/poses/videos/low-v.mp4',
     points: 100,
     idealAngles: {
       armSpread: '45° downward from torso',
       elbowAngle: '180° locked',
-      torsoAngle: '90° vertical'
+      torsoAngle: '90° vertical posture'
     },
     commonMistakes: [
       'Bending wrists backward (broken wrists)',
@@ -175,11 +177,11 @@ export const INITIAL_POSES: Pose[] = [
     name: 'Half-T',
     category: 'Pom Motion',
     difficulty: 'Beginner',
-    description: 'The arms form a shorter T shape halfway between the body and shoulder height. Maintain rigid wrists and sharp motion.',
+    description: 'Keep upper arms level with the shoulders, bend both elbows, and bring fists inward toward the chest.',
     practiceTips: [
-      { text: 'Keep the horizontal line shorter.', type: 'check' },
-      { text: 'Stay centered. Engage core muscles for balance.', type: 'check' },
-      { text: 'Keep elbows soft but energy extending through the fists.', type: 'check' }
+      { text: 'Keep elbows lifted and pointed outward at shoulder height.', type: 'check' },
+      { text: 'Bend both elbows and pull fists inward toward the chest.', type: 'check' },
+      { text: 'Keep wrists firm and shoulders level.', type: 'check' }
     ],
     masteryPercentage: 0,
     imageUrl: '/poses/half-t.jpg',
@@ -187,14 +189,14 @@ export const INITIAL_POSES: Pose[] = [
     idealAngles: {
       armSpread: 'Bent 90° at elbows inward',
       elbowAngle: '90° acute',
-      torsoAngle: '90° vertical'
+      torsoAngle: '90° vertical posture'
     },
     commonMistakes: [
       'Elbows flaring too far back',
-      'Wrists bending in front of chest',
+      'Letting fists drift away from the chest',
       'Dropping shoulders forward'
     ],
-    icuStandardGuideline: 'ICU Motion Sharpness Guide: Forearms parallel to chest line with thumb knuckles facing outward.',
+    icuStandardGuideline: 'Keep upper arms level with the shoulders and draw both fists inward toward the chest.',
     defaultSkeleton: {
       joints: [
         { id: 'neck', name: 'Neck', x: 50, y: 30, status: 'correct' },
@@ -224,7 +226,7 @@ export const INITIAL_POSES: Pose[] = [
         { from: 'l_knee', to: 'l_ankle', status: 'correct' }
       ]
     },
-    sampleCorrectionMessage: 'Tuck forearms parallel to chest line and snap motion sharply.'
+    sampleCorrectionMessage: 'Lift your elbows to shoulder height and pull both fists in toward your chest.'
   },
   {
     id: 'liberty',
@@ -242,9 +244,11 @@ export const INITIAL_POSES: Pose[] = [
     imageUrl: '/poses/liberty.jpg',
     points: 150,
     idealAngles: {
-      standingLeg: '180° vertical lock',
-      liftKnee: '90° horizontal thigh',
-      torsoAngle: '90° vertical'
+      standingLeg: '175°–180° vertical lock',
+      liftKnee: '60°–70° acute fold at knee',
+      liftedThigh: '90° horizontal to torso',
+      highVAperture: '90°–100° overhead spread',
+      torsoAngle: '90° vertical posture'
     },
     commonMistakes: [
       'Standing knee slightly bent, causing base strain',
@@ -254,27 +258,40 @@ export const INITIAL_POSES: Pose[] = [
     icuStandardGuideline: 'ICU Stunts Level 3-5: Standing knee locked with zero hyperextension wobble; bent knee at or above hip crest.',
     defaultSkeleton: {
       joints: [
-        { id: 'neck', name: 'Neck', x: 50, y: 31, status: 'correct' },
-        { id: 'r_shoulder', name: 'Right Shoulder', x: 40, y: 25, status: 'correct' },
-        { id: 'r_wrist', name: 'Right Wrist', x: 37, y: 15, status: 'correct' },
-        { id: 'l_shoulder', name: 'Left Shoulder', x: 65, y: 29, status: 'correct' },
-        { id: 'l_wrist', name: 'Left Wrist', x: 67, y: 19, status: 'correct' },
-        { id: 'pelvis', name: 'Pelvis', x: 50, y: 50, status: 'correct' },
-        { id: 'r_knee', name: 'Standing Knee', x: 48, y: 69, status: 'correct' },
-        { id: 'r_ankle', name: 'Standing Ankle', x: 46, y: 88, status: 'correct' },
-        { id: 'l_knee', name: 'Lifted Knee', x: 65, y: 56, status: 'error' },
-        { id: 'l_ankle', name: 'Lifted Ankle', x: 52, y: 66, status: 'error' }
+        { id: 'neck', name: 'Neck', x: 47, y: 36, status: 'correct' },
+        { id: 'r_shoulder', name: 'Right Shoulder', x: 41, y: 44, status: 'correct' },
+        { id: 'r_elbow', name: 'Right Elbow', x: 36, y: 37, status: 'correct' },
+        { id: 'r_wrist', name: 'Right Wrist', x: 31, y: 29, status: 'correct' },
+        { id: 'l_shoulder', name: 'Left Shoulder', x: 54, y: 44, status: 'correct' },
+        { id: 'l_elbow', name: 'Left Elbow', x: 57, y: 40, status: 'correct' },
+        { id: 'l_wrist', name: 'Left Wrist', x: 62, y: 36, status: 'correct' },
+        { id: 'pelvis', name: 'Pelvis', x: 48, y: 59, status: 'correct' },
+        { id: 'r_knee', name: 'Standing Knee', x: 46, y: 71, status: 'correct' },
+        { id: 'r_ankle', name: 'Standing Ankle', x: 47, y: 81, status: 'correct' },
+        { id: 'l_knee', name: 'Lifted Knee', x: 63, y: 65, status: 'correct' },
+        { id: 'l_ankle', name: 'Lifted Ankle', x: 50, y: 70, status: 'correct' }
+
+
+
+
+
+
+
+
+
       ],
       lines: [
         { from: 'neck', to: 'pelvis', status: 'correct' },
         { from: 'neck', to: 'r_shoulder', status: 'correct' },
-        { from: 'r_shoulder', to: 'r_wrist', status: 'correct' },
+        { from: 'r_shoulder', to: 'r_elbow', status: 'correct' },
+        { from: 'r_elbow', to: 'r_wrist', status: 'correct' },
         { from: 'neck', to: 'l_shoulder', status: 'correct' },
-        { from: 'l_shoulder', to: 'l_wrist', status: 'correct' },
+        { from: 'l_shoulder', to: 'l_elbow', status: 'correct' },
+        { from: 'l_elbow', to: 'l_wrist', status: 'correct' },
         { from: 'pelvis', to: 'r_knee', status: 'correct' },
         { from: 'r_knee', to: 'r_ankle', status: 'correct' },
-        { from: 'pelvis', to: 'l_knee', status: 'error' },
-        { from: 'l_knee', to: 'l_ankle', status: 'error' }
+        { from: 'pelvis', to: 'l_knee', status: 'correct' },
+        { from: 'l_knee', to: 'l_ankle', status: 'correct' }
       ]
     },
     sampleCorrectionMessage: 'Keep your standing leg straight. Lift your bent knee higher towards your chest.'
@@ -321,9 +338,11 @@ export const INITIAL_POSES: Pose[] = [
       lines: [
         { from: 'neck', to: 'pelvis', status: 'correct' },
         { from: 'neck', to: 'r_shoulder', status: 'correct' },
-        { from: 'r_shoulder', to: 'r_wrist', status: 'correct' },
+        { from: 'r_shoulder', to: 'r_elbow', status: 'correct' },
+        { from: 'r_elbow', to: 'r_wrist', status: 'correct' },
         { from: 'neck', to: 'l_shoulder', status: 'correct' },
-        { from: 'l_shoulder', to: 'l_wrist', status: 'correct' },
+        { from: 'l_shoulder', to: 'l_elbow', status: 'correct' },
+        { from: 'l_elbow', to: 'l_wrist', status: 'correct' },
         { from: 'pelvis', to: 'r_knee', status: 'correct' },
         { from: 'r_knee', to: 'r_ankle', status: 'correct' },
         { from: 'pelvis', to: 'l_knee', status: 'correct' },
@@ -345,6 +364,7 @@ export const INITIAL_POSES: Pose[] = [
     ],
     masteryPercentage: 0,
     imageUrl: '/poses/arabesque.jpg',
+    videoUrl: '/poses/videos/arabesque.mp4',
     points: 160,
     idealAngles: {
       standingLeg: '180° lock',
@@ -367,15 +387,20 @@ export const INITIAL_POSES: Pose[] = [
         { id: 'pelvis', name: 'Pelvis', x: 46, y: 52, status: 'correct' },
         { id: 'r_knee', name: 'Standing Knee', x: 46, y: 70, status: 'correct' },
         { id: 'r_ankle', name: 'Standing Ankle', x: 46, y: 88, status: 'correct' },
+
+
+
         { id: 'l_knee', name: 'Rear Knee', x: 68, y: 52, status: 'correct' },
         { id: 'l_ankle', name: 'Rear Ankle', x: 86, y: 50, status: 'correct' }
       ],
       lines: [
         { from: 'neck', to: 'pelvis', status: 'correct' },
         { from: 'neck', to: 'r_shoulder', status: 'correct' },
-        { from: 'r_shoulder', to: 'r_wrist', status: 'correct' },
+        { from: 'r_shoulder', to: 'r_elbow', status: 'correct' },
+        { from: 'r_elbow', to: 'r_wrist', status: 'correct' },
         { from: 'neck', to: 'l_shoulder', status: 'correct' },
-        { from: 'l_shoulder', to: 'l_wrist', status: 'correct' },
+        { from: 'l_shoulder', to: 'l_elbow', status: 'correct' },
+        { from: 'l_elbow', to: 'l_wrist', status: 'correct' },
         { from: 'pelvis', to: 'r_knee', status: 'correct' },
         { from: 'r_knee', to: 'r_ankle', status: 'correct' },
         { from: 'pelvis', to: 'l_knee', status: 'correct' },
@@ -398,11 +423,12 @@ export const INITIAL_POSES: Pose[] = [
     ],
     masteryPercentage: 0,
     imageUrl: '/poses/heel-stretch.jpg',
+    videoUrl: '/poses/videos/heel-stretch.mp4',
     points: 220,
     idealAngles: {
       verticalStretch: '175° vertical split',
       standingLeg: '180° locked',
-      torsoAngle: '90° vertical'
+      torsoAngle: '90° vertical posture'
     },
     commonMistakes: [
       'Bent bottom leg absorbing flyer balance',
@@ -412,23 +438,37 @@ export const INITIAL_POSES: Pose[] = [
     icuStandardGuideline: 'ICU Level 5/6 Standards: 180 degree line from standing foot to heel stretch apex without pelvic tilt.',
     defaultSkeleton: {
       joints: [
-        { id: 'neck', name: 'Neck', x: 48, y: 28, status: 'correct' },
-        { id: 'r_shoulder', name: 'Right Shoulder', x: 38, y: 30, status: 'correct' },
-        { id: 'r_wrist', name: 'Right Wrist', x: 26, y: 16, status: 'correct' },
-        { id: 'l_shoulder', name: 'Left Shoulder', x: 58, y: 30, status: 'correct' },
-        { id: 'l_wrist', name: 'Left Wrist', x: 62, y: 14, status: 'correct' },
-        { id: 'pelvis', name: 'Pelvis', x: 48, y: 52, status: 'correct' },
-        { id: 'r_knee', name: 'Standing Knee', x: 46, y: 70, status: 'correct' },
-        { id: 'r_ankle', name: 'Standing Ankle', x: 45, y: 88, status: 'correct' },
-        { id: 'l_knee', name: 'Stretch Knee', x: 58, y: 32, status: 'correct' },
-        { id: 'l_ankle', name: 'Stretch Ankle', x: 62, y: 15, status: 'correct' }
+        { id: 'neck', name: 'Neck', x: 51, y: 39, status: 'correct' },
+        { id: 'r_shoulder', name: 'Right Shoulder', x: 43, y: 38, status: 'correct' },
+        { id: 'r_elbow', name: 'Right Elbow', x: 30, y: 31, status: 'correct' },
+        { id: 'r_wrist', name: 'Right Wrist', x: 16, y: 23, status: 'correct' },
+        { id: 'l_shoulder', name: 'Left Shoulder', x: 55, y: 42, status: 'correct' },
+        { id: 'l_elbow', name: 'Left Elbow', x: 62, y: 37, status: 'correct' },
+        { id: 'l_wrist', name: 'Left Wrist', x: 62, y: 25, status: 'correct' },
+        { id: 'pelvis', name: 'Pelvis', x: 53, y: 54, status: 'correct' },
+        { id: 'r_knee', name: 'Standing Knee', x: 52, y: 68, status: 'correct' },
+        { id: 'r_ankle', name: 'Standing Ankle', x: 53, y: 87, status: 'correct' },
+        { id: 'l_knee', name: 'Stretch Knee', x: 62, y: 37, status: 'correct' },
+        { id: 'l_ankle', name: 'Stretch Ankle', x: 63, y: 22, status: 'correct' },
+
+
+
+
+
+
+
+
+
+
       ],
       lines: [
         { from: 'neck', to: 'pelvis', status: 'correct' },
         { from: 'neck', to: 'r_shoulder', status: 'correct' },
-        { from: 'r_shoulder', to: 'r_wrist', status: 'correct' },
+        { from: 'r_shoulder', to: 'r_elbow', status: 'correct' },
+        { from: 'r_elbow', to: 'r_wrist', status: 'correct' },
         { from: 'neck', to: 'l_shoulder', status: 'correct' },
-        { from: 'l_shoulder', to: 'l_wrist', status: 'correct' },
+        { from: 'l_shoulder', to: 'l_elbow', status: 'correct' },
+        { from: 'l_elbow', to: 'l_wrist', status: 'correct' },
         { from: 'pelvis', to: 'r_knee', status: 'correct' },
         { from: 'r_knee', to: 'r_ankle', status: 'correct' },
         { from: 'pelvis', to: 'l_knee', status: 'correct' },
@@ -465,18 +505,19 @@ export const INITIAL_POSES: Pose[] = [
     icuStandardGuideline: 'ICU Stunts Level 5/6 Standards: Standing knee locked without wobble; rear foot pulled over head height in continuous sagittal plane with toes pointed.',
     defaultSkeleton: {
       joints: [
-        { id: 'neck', name: 'Neck', x: 44, y: 28, status: 'correct' },
-        { id: 'r_shoulder', name: 'Right Shoulder', x: 40, y: 24, status: 'correct' },
-        { id: 'r_elbow', name: 'Right Elbow', x: 44, y: 15, status: 'correct' },
-        { id: 'r_wrist', name: 'Right Wrist', x: 50, y: 8, status: 'correct' },
-        { id: 'l_shoulder', name: 'Left Shoulder', x: 48, y: 24, status: 'correct' },
-        { id: 'l_elbow', name: 'Left Elbow', x: 50, y: 15, status: 'correct' },
-        { id: 'l_wrist', name: 'Left Wrist', x: 52, y: 8, status: 'correct' },
+        { id: 'neck', name: 'Neck', x: 44, y: 34, status: 'correct' },
+        { id: 'r_shoulder', name: 'Right Shoulder', x: 43, y: 36, status: 'correct' },
+        { id: 'r_elbow', name: 'Right Elbow', x: 42, y: 21, status: 'correct' },
+        { id: 'r_wrist', name: 'Right Wrist', x: 47, y: 9, status: 'correct' },
+        { id: 'l_shoulder', name: 'Left Shoulder', x: 45, y: 33, status: 'correct' },
+        { id: 'l_elbow', name: 'Left Elbow', x: 39, y: 27, status: 'correct' },
+        { id: 'l_wrist', name: 'Left Wrist', x: 50, y: 8, status: 'correct' },
+
         { id: 'pelvis', name: 'Pelvis', x: 48, y: 52, status: 'correct' },
-        { id: 'r_knee', name: 'Standing Knee', x: 50, y: 72, status: 'correct' },
-        { id: 'r_ankle', name: 'Standing Ankle', x: 50, y: 92, status: 'correct' },
-        { id: 'l_knee', name: 'Scorpion Knee', x: 62, y: 32, status: 'correct' },
-        { id: 'l_ankle', name: 'Scorpion Ankle', x: 52, y: 10, status: 'correct' }
+        { id: 'r_knee', name: 'Standing Knee', x: 56, y: 69, status: 'correct' },
+        { id: 'r_ankle', name: 'Standing Ankle', x: 54, y: 87, status: 'correct' },
+        { id: 'l_knee', name: 'Scorpion Knee', x: 64, y: 27, status: 'correct' },
+        { id: 'l_ankle', name: 'Scorpion Ankle', x: 54, y: 11, status: 'correct' }
       ],
       lines: [
         { from: 'neck', to: 'pelvis', status: 'correct' },
